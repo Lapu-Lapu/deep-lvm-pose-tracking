@@ -1,12 +1,17 @@
 #+TITLE: Articulated Body Pose Tracking
+#+latex_header: \usepackage[citestyle=authoryear-icomp,bibstyle=authoryear, hyperref=true,backref=true,maxcitenames=3,url=true,backend=biber,natbib=true] {biblatex}
+#+latex_header: \addbibresource{literature.bib}
 
 * Current problems
   
 * Open Questions
 - Do we need non-linear dynamics?
   If inducing-point and -value are given compute
-  Jacobian and apply contraction theory!
-  
+  Jacobian and apply contraction theory:
+  dynamics are contracting if absolute values of eigenvectors of the
+  jacobian are all smaller than one.
 * Ideas
 - Use SVAE to extend vCGPDM
 
+* Literature
+@johnson_composing_2016

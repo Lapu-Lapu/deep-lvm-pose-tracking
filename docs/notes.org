@@ -12,6 +12,17 @@
   jacobian are all smaller than one.
 * Ideas
 - Use SVAE to extend vCGPDM
+- Use constrained biomechanical model:
+  Animators often control dofs to simulate physics,
+  this should not be done by the CNS. 
 
 * Literature
-@johnson_composing_2016
+** @johnson_composing_2016
+Graphical model with neural-network based observation-likelihoods
+- @khan_conjugate-computation_2017:
+  Generalizes to arbitrary conjugacy structure and removes need to run 
+  conjugate part until convergence
+- @linderman_recurrent_2016:
+  This model has nonlinear transition/emission models
+** @lin_variational_2018
+Generalize and simplify SVAE [github: vmp-for-svae]

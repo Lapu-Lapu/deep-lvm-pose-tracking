@@ -10,11 +10,18 @@
   Jacobian and apply contraction theory:
   dynamics are contracting if absolute values of eigenvectors of the
   jacobian are all smaller than one.
+  - Compare LDS with GPDM
+
 * Ideas
 - Use SVAE to extend vCGPDM
 - Use constrained biomechanical model:
   Animators often control dofs to simulate physics,
   this should not be done by the CNS. 
+- Build pose tracker working on natural *and* point-light display
+- Do pose estimation on klt-tracked (or similar) features
+- Vitruvian Man: Fit biomechanical skeleton into image by learning
+  the transform matrix. Connection to hierarchy detection
+  [@tenenbaum]
 
 * Literature
 ** @johnson_composing_2016

@@ -2,6 +2,20 @@
 #+latex_header: \usepackage[citestyle=authoryear-icomp,bibstyle=authoryear, hyperref=true,backref=true,maxcitenames=3,url=true,backend=biber,natbib=true] {biblatex}
 #+latex_header: \addbibresource{literature.bib}
 
+* State of the art
+[@xiao_simple_2018]
+** Benchmarks
+*** MPII Benchmark 
+http://human-pose.mpi-inf.mpg.de
+425 Gb
+*** Posetrack
+https://posetrack.net
+**** 2017
+33.5 Gb
+**** 2018
+81.8 Gb
+*** C(ommon) O(bjects in) Co(ntext)
+http://cocodataset.org
 * Current problems
   
 * Open Questions

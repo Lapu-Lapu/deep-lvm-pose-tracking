@@ -16,6 +16,7 @@ https://posetrack.net
 81.8 Gb
 *** C(ommon) O(bjects in) Co(ntext)
 http://cocodataset.org
+Task: keypoint detection
 * Current problems
   
 * Open Questions

@@ -2,33 +2,47 @@
 #+latex_header: \usepackage[citestyle=authoryear-icomp,bibstyle=authoryear, hyperref=true,backref=true,maxcitenames=3,url=true,backend=biber,natbib=true] {biblatex}
 #+latex_header: \addbibresource{literature.bib}
 
-* State of the art
-[@xiao_simple_2018]
-** Benchmarks
-*** MPII Benchmark 
-http://human-pose.mpi-inf.mpg.de
-425 Gb
-*** Posetrack
-https://posetrack.net
-**** 2017
-33.5 Gb
-**** 2018
-81.8 Gb
-*** C(ommon) O(bjects in) Co(ntext)
-http://cocodataset.org
-* Current problems
-** 3D regression
+
+* Plan
+1. Generate Ground Truth with Panda3D
+   - Natural
+   - Point light display
+2. Test existing approaches
+   - Find weak spots
+3. Implement SVAE
+
+* Review
+Top down vs bottom up in Pose Estimation:
+Top down: Detect and box human, and then track each box.
+Bottom up: Search joint candidates, construct graph and partition.
+
+** State of the art
+ [@xiao_simple_2018]
+*** Benchmarks
+**** MPII Benchmark 
+ http://human-pose.mpi-inf.mpg.de
+ 425 Gb
+**** Posetrack
+ https://posetrack.net
+***** 2017
+ 33.5 Gb
+***** 2018
+ 81.8 Gb
+**** C(ommon) O(bjects in) Co(ntext)
+ http://cocodataset.org
+ Task: keypoint detection
+** Open Questions
+ - Do we need non-linear dynamics?
+   If inducing-point and -value are given compute
+   Jacobian and apply contraction theory:
+   dynamics are contracting if absolute values of eigenvectors of the
+   jacobian are all smaller than one.
+   - Compare LDS with GPDM
+** Current problems
+*** 3D regression
 It's not possible to aquire amount of training data for 
 deep learning methods. Biggest Dataset available (Human3.6)
 is recordings in laboratory environment.
-  
-* Open Questions
-- Do we need non-linear dynamics?
-  If inducing-point and -value are given compute
-  Jacobian and apply contraction theory:
-  dynamics are contracting if absolute values of eigenvectors of the
-  jacobian are all smaller than one.
-  - Compare LDS with GPDM
 
 * Ideas
 - Use SVAE to extend vCGPDM

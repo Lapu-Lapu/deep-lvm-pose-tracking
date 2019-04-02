@@ -17,6 +17,10 @@ https://posetrack.net
 *** C(ommon) O(bjects in) Co(ntext)
 http://cocodataset.org
 * Current problems
+** 3D regression
+It's not possible to aquire amount of training data for 
+deep learning methods. Biggest Dataset available (Human3.6)
+is recordings in laboratory environment.
   
 * Open Questions
 - Do we need non-linear dynamics?
@@ -36,6 +40,13 @@ http://cocodataset.org
 - Vitruvian Man: Fit biomechanical skeleton into image by learning
   the transform matrix. Connection to hierarchy detection
   [@tenenbaum]
+- build pose extraction algorithm that works on point light displays too
+- make convolutional net recurrent
+  make current frame input to next one like this:
+  https://ai.googleblog.com/2018/03/mobile-real-time-video-segmentation.html
+- Deep learning methods work really well for key point estimation 
+  from single frames. Therefore people attempt to abuse 2D annotations.
+** shared representation of biological movement and its perception using VAE-SMPs
 
 * Literature
 ** @johnson_composing_2016

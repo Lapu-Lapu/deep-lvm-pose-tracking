@@ -41,11 +41,14 @@ class VAE(nn.Module):
         self.device = device
         return super().to(device)
 
-    def fit(self, batch_generator, epoch=1):
+    def fit(self, batch_generator, epoch=1, max_iter=10e10):
         self.train()
         train_loss = []
         pbar = tqdm(enumerate(batch_generator))
         for batch_idx, (batch, _) in pbar:
+            if batch_idx > max_iter:
+                print("Reached maximal number of iterations.")
+                break
             data = T(batch).to(self.device)
             self.optimizer.zero_grad()
             recon_batch, mu, logvar = self(data)

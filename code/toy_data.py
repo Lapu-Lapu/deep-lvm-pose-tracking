@@ -7,8 +7,8 @@ def forward(angles, armlengths=None):
     Compute forward kinematics
     angles --> cartesian coordinates
 
-    :param angles:
-    :param armlengths:
+    :param angles: List of angles for each bone in the hierarchy
+    :param armlengths: List of bone lengths
     """
     if armlengths is None:
         armlengths = np.ones_like(angles)
@@ -46,9 +46,6 @@ def plot_keypoints(coords):
 def keypoint_to_image(coords, size=(28, 28), beta=40,
                       include_origin=False):
     """keypoint_to_image
-
-    :param 28:
-    :param 28:
     """
     img = np.zeros(size)
     t1 = np.linspace(-2, 2, size[0])
@@ -70,7 +67,6 @@ def angle_batch_to_image(angle_batch, lengths):
     """
     img_batch = np.empty((len(angle_batch), 1, 28, 28))
     for i, angles in enumerate(angle_batch):
-        # alpha = angles[0]
         coords = forward(angles, lengths)
         img_batch[i, 0] = keypoint_to_image(coords)
     return img_batch

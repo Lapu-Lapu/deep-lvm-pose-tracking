@@ -7,7 +7,9 @@ def forward(angles, armlengths=None):
     Compute forward kinematics
     angles --> cartesian coordinates
 
-    :param angles: List of angles for each bone in the hierarchy
+    :param angles:
+      List of angles for each bone in the hierarchy
+      relative to its parent bone
     :param armlengths: List of bone lengths
     """
     if armlengths is None:
@@ -22,10 +24,12 @@ def forward(angles, armlengths=None):
                   f" but: {len(angles)} is not {len(armlengths)}")
 
     coords = [(0, 0)]
+    cum_angle = 0
     for angle, bone in zip(angles, armlengths):
         offs = coords[-1]
-        coords += [(bone * np.cos(angle) + offs[0],
-                    bone * np.sin(angle) + offs[1])]
+        cum_angle += angle
+        coords += [(bone * np.cos(cum_angle) + offs[0],
+                    bone * np.sin(cum_angle) + offs[1])]
     return coords
 
 
@@ -58,21 +62,22 @@ def keypoint_to_image(coords, size=(28, 28), beta=40,
     return img
 
 
-def angle_batch_to_image(angle_batch, lengths):
+def angle_batch_to_image(angle_batch, lengths, img_shape=(28, 28)):
     """angle_batch_to_image
 
     :param angle_batch:
     :param lengths:
     :rtype: np.array
     """
-    img_batch = np.empty((len(angle_batch), 1, 28, 28))
+    h, w = img_shape
+    img_batch = np.empty((len(angle_batch), 1, h, w))
     for i, angles in enumerate(angle_batch):
         coords = forward(angles, lengths)
         img_batch[i, 0] = keypoint_to_image(coords)
     return img_batch
 
 
-def make_batch_generator(angles, lengths, batch_size):
+def make_batch_generator(angles, lengths, batch_size, img_shape=(28, 28)):
     """make_batch_generator
     returns generator making batches of 28x28 images based
     on angles.
@@ -84,7 +89,7 @@ def make_batch_generator(angles, lengths, batch_size):
     N = len(angles)
     for i in range(N//batch_size):
         angle_batch = angles[i*batch_size:(i+1)*batch_size]
-        img_batch = angle_batch_to_image(angle_batch, lengths)
+        img_batch = angle_batch_to_image(angle_batch, lengths, img_shape)
         yield img_batch, angle_batch
     try:
         i += 1
@@ -93,7 +98,7 @@ def make_batch_generator(angles, lengths, batch_size):
     angle_batch = angles[i*batch_size:]
     if len(angle_batch) == 0 :
         raise StopIteration
-    img_batch = angle_batch_to_image(angle_batch, lengths)
+    img_batch = angle_batch_to_image(angle_batch, lengths, img_shape)
     yield img_batch, angle_batch
 
 

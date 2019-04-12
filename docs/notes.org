@@ -53,13 +53,15 @@ is recordings in laboratory environment.
 - Do pose estimation on klt-tracked (or similar) features
 - Vitruvian Man: Fit biomechanical skeleton into image by learning
   the transform matrix. Connection to hierarchy detection
-  [@tenenbaum]
+  [@tenenbaum] -> Also check out ICLR2019 paper!
 - build pose extraction algorithm that works on point light displays too
 - make convolutional net recurrent
   make current frame input to next one like this:
   https://ai.googleblog.com/2018/03/mobile-real-time-video-segmentation.html
 - Deep learning methods work really well for key point estimation 
   from single frames. Therefore people attempt to abuse 2D annotations.
+  
+- compute optical flow to use as input [@sevilla-lara_integration_2017]
 ** shared representation of biological movement and its perception using VAE-SMPs
 
 * Literature

@@ -40,7 +40,7 @@ class VAE(nn.Module):
         self.device = device
         return super().to(device)
 
-    def fit(self, batch_generator, epoch=1, max_iter=10e10):
+    def fit(self, batch_generator, epoch=1, max_iter=10e10, verbose=True):
         self.train()
         train_loss = []
         pbar = tqdm(enumerate(batch_generator))
@@ -55,9 +55,10 @@ class VAE(nn.Module):
             loss.backward()
             train_loss += [loss.item()/len(data)]
             self.optimizer.step()
-            pbar.set_description(
-                f"Loss at batch {batch_idx:05d}: {loss.item()/len(data):.1f}"
-            )
+            if verbose:
+                pbar.set_description(
+                    f"Loss at batch {batch_idx:05d}: {loss.item()/len(data):.1f}"
+                )
         return train_loss
 
 

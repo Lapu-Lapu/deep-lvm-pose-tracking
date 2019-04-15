@@ -1,5 +1,47 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from torch.utils.data import Dataset
+
+
+class HierarchyImages(Dataset):
+    """ Toy data for pose estimation """
+    def __init__(self, angles=None,
+                 bone_lengths=None,
+                 key_marker_width=1,
+                 img_shape=(28, 28)):
+        """
+        :param angles:
+          List of angles for each bone in the hierarchy
+          relative to its parent bone.
+          Shape (batch_size N, bone_number D)
+        :param bone_lengths:
+          List of bonelengths.
+        """
+        self.angles = angles
+        assert len(bone_lengths) == angles.shape[1]
+        self.bone_lengths = bone_lengths
+
+        self.include_origin = True
+        self.img_shape = img_shape
+        self.key_marker_width = key_marker_width
+
+    def __len__(self):
+        return len(self.angles)
+
+    def __getitem__(self, idx):
+        pose = self.angles[idx]
+        coords = forward(pose, self.bone_lengths)
+        img = keypoint_to_image(coords,
+                                size=self.img_shape,
+                                fwhm=self.key_marker_width,
+                                include_origin=self.include_origin)
+        sample = {'image': img, 'angles': pose}
+        return sample
+
+    def plot_image(self, idx):
+        img = self.__getitem__(idx)['image']
+        plt.imshow(img)
+        plt.show()
 
 
 def forward(angles, armlengths=None):
@@ -47,18 +89,24 @@ def plot_keypoints(coords):
     plt.show()
 
 
-def keypoint_to_image(coords, size=(28, 28), beta=40,
+def keypoint_to_image(coords, size=(28, 28), fwhm=2,
                       include_origin=False):
     """keypoint_to_image
+    :param coords:
+    :param fwhm:
+      full-width-(at)-half-maximum
+      FWHM = 2 \sqrt{2\ln 2} \sigma
     """
+    h, w = size
+    sigma = fwhm/(2*np.sqrt(2*np.log(2)))
     img = np.zeros(size)
-    t1 = np.linspace(-2, 2, size[0])
-    t2 = np.linspace(-2, 2, size[1])
+    t1 = np.arange(-h//2, h//2)
+    t2 = np.arange(-w//2, w//2)
     X, Y = np.meshgrid(t1, t2)
     if not include_origin:
         coords = coords[1:]
     for x, y in coords:
-        img = img + np.exp(-beta*((x-X)**2 + (y-Y)**2))
+        img = img + np.exp(-0.5/sigma**2*((x-X)**2 + (y-Y)**2))
     return img
 
 
@@ -66,6 +114,7 @@ def angle_batch_to_image(angle_batch, lengths, img_shape=(28, 28)):
     """angle_batch_to_image
 
     :param angle_batch:
+        Shape (batch_size N, bone_number D)
     :param lengths:
     :rtype: np.array
     """
@@ -79,12 +128,12 @@ def angle_batch_to_image(angle_batch, lengths, img_shape=(28, 28)):
 
 def make_batch_generator(angles, lengths, batch_size, img_shape=(28, 28)):
     """make_batch_generator
-    returns generator making batches of 28x28 images based
-    on angles.
+    returns generator making batches of images based on angles.
 
     :param angles:
     :param lengths:
     :param batch_size:
+    :param key_point_width:
     """
     N = len(angles)
     for i in range(N//batch_size):
@@ -100,15 +149,3 @@ def make_batch_generator(angles, lengths, batch_size, img_shape=(28, 28)):
         raise StopIteration
     img_batch = angle_batch_to_image(angle_batch, lengths, img_shape)
     yield img_batch, angle_batch
-
-
-def test_batch_generator():
-    """test_batch_generator"""
-    N = 10
-    batch_size = 4
-    labels = 2*np.pi*(np.random.rand(N, 2)-0.5)
-    g = make_batch_generator(labels, [1, 2], N, batch_size)
-    test = [4, 4, 2]
-    out_shape = [len(batch_img) for batch_img, batch_pose in g]
-    for t, o in zip(test, out_shape):
-        assert t == o

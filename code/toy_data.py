@@ -75,20 +75,6 @@ def forward(angles, armlengths=None):
     return coords
 
 
-def plot_keypoints(coords):
-    """plot_keypoints
-
-    :param coords:
-    """
-    for x, y in coords:
-        plt.scatter(x, y)
-    plt.legend(range(len(coords)))
-    plt.grid()
-    plt.ylim((-2, 2))
-    plt.xlim((-2, 2))
-    plt.show()
-
-
 def keypoint_to_image(coords, size=(28, 28), fwhm=2,
                       include_origin=False):
     """keypoint_to_image
@@ -108,44 +94,3 @@ def keypoint_to_image(coords, size=(28, 28), fwhm=2,
     for x, y in coords:
         img = img + np.exp(-0.5/sigma**2*((x-X)**2 + (y-Y)**2))
     return img
-
-
-def angle_batch_to_image(angle_batch, lengths, img_shape=(28, 28)):
-    """angle_batch_to_image
-
-    :param angle_batch:
-        Shape (batch_size N, bone_number D)
-    :param lengths:
-    :rtype: np.array
-    """
-    h, w = img_shape
-    img_batch = np.empty((len(angle_batch), 1, h, w))
-    for i, angles in enumerate(angle_batch):
-        coords = forward(angles, lengths)
-        img_batch[i, 0] = keypoint_to_image(coords)
-    return img_batch
-
-
-def make_batch_generator(angles, lengths, batch_size, img_shape=(28, 28)):
-    """make_batch_generator
-    returns generator making batches of images based on angles.
-
-    :param angles:
-    :param lengths:
-    :param batch_size:
-    :param key_point_width:
-    """
-    N = len(angles)
-    for i in range(N//batch_size):
-        angle_batch = angles[i*batch_size:(i+1)*batch_size]
-        img_batch = angle_batch_to_image(angle_batch, lengths, img_shape)
-        yield img_batch, angle_batch
-    try:
-        i += 1
-    except UnboundLocalError:
-        i = 0
-    angle_batch = angles[i*batch_size:]
-    if len(angle_batch) == 0 :
-        raise StopIteration
-    img_batch = angle_batch_to_image(angle_batch, lengths, img_shape)
-    yield img_batch, angle_batch

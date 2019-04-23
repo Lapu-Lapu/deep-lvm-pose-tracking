@@ -7,6 +7,43 @@ from torch.nn import functional as F
 from torch import Tensor as T
 
 
+def reparameterize(mu, logvar):
+    std = torch.exp(0.5*logvar)
+    eps = torch.randn_like(std)
+    return mu + eps*std
+
+
+class cVAE(nn.Module):
+    def __init__(self, input_dim, cond_data_len, bottleneck=5, hidden=40):
+        nn.Module.__init__(self)
+        self.enc = nn.ModuleList([
+            nn.Linear(input_dim, hidden),
+            nn.Linear(hidden, 2 * bottleneck)
+        ])
+        self.dec = nn.ModuleList([
+            nn.Linear(bottleneck + cond_data_len, hidden),
+            nn.Linear(hidden, input_dim)
+        ])
+        self.optimizer = torch.optim.SGD(self.parameters(), lr=1e-4)
+        self.bottleneck = bottleneck
+        self.cond_data_len = cond_data_len
+
+    def encode(self, x):
+        h = F.relu(self.enc[0](x))
+        out = self.enc[1](h)
+        return out[:, :self.bottleneck], out[:, self.bottleneck:]
+
+    def decode(self, z):
+        h = F.relu(self.dec[0](z))
+        return torch.sigmoid(self.dec[1](h))
+
+    def forward(self, x):
+        mu, logvar = self.encode(x)
+        z = reparameterize(mu, logvar)
+        z_cond = torch.cat((z, x[:, -self.cond_data_len:]), dim=1)
+        return self.decode(z_cond), mu, logvar
+
+
 class VAE(nn.Module):
     def __init__(self, input_dim, bottleneck=5, inter_dim=40):
         nn.Module.__init__(self)
@@ -116,3 +153,6 @@ class convVAE(nn.Module):
 
     def decode(self, z):
         pass
+
+if __name__ == '__main__':
+    cVAE(1, 1)

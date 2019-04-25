@@ -47,30 +47,12 @@ class cVAE(nn.Module):
         return self.decode(z_cond), mu, logvar
 
 
-class VAE(nn.Module):
-    def __init__(self, input_dim, bottleneck=5, inter_dim=40):
-        nn.Module.__init__(self)
-
-        self.fc1 = nn.Linear(input_dim, inter_dim)
-        self.fc21 = nn.Linear(inter_dim, bottleneck)
-        self.fc22 = nn.Linear(inter_dim, bottleneck)
-
-        self.fc3 = nn.Linear(bottleneck, inter_dim)
-        self.fc4 = nn.Linear(inter_dim, input_dim)
-        self.optimizer = optim.Adam(self.parameters(), lr=1e-3)
-
-        self.input_dim = input_dim
-
-    def encode(self, x):
-        h1 = F.relu(self.fc1(x))
-        return self.fc21(h1), self.fc22(h1)
-
-    def decode(self, z):
-        h3 = F.relu(self.fc3(z))
-        return torch.sigmoid(self.fc4(h3))
+class VAE(cVAE):
+    def __init__(self, input_dim, bottleneck=5, hidden=40):
+        cVAE.__init__(self, input_dim, bottleneck=5, hidden=40, cond_data_len=0)
 
     def forward(self, x):
-        mu, logvar = self.encode(x.view(-1, self.input_dim))
+        mu, logvar = self.encode(x)
         z = reparameterize(mu, logvar)
         return self.decode(z), mu, logvar
 
@@ -202,11 +184,11 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                         data = T(img.float()).to(device)
                     recon_batch, mu, logvar = model(data)
                     loss = loss_func(recon_x=recon_batch, x=data, mu=mu, logvar=logvar)
-                    model.optimizer.zero_grad()
+                    optimizer.zero_grad()
                     if phase == 'train':
                         loss.backward()
                         epoch_loss += [loss.item()]
-                        model.optimizer.step()
+                        optimizer.step()
                     else:
                         epoch_loss += [loss.item()]
                     if verbose:

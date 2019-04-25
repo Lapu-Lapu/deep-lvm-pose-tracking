@@ -1,3 +1,7 @@
 tags
 *~
 *.pdf
+*/.ipynb_checkpoints/
+*/__pycache__/
+*.png
+*.pt

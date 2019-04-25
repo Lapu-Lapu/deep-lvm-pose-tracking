@@ -160,7 +160,8 @@ class convVAE(nn.Module):
 
 
 def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
-        device='cpu', weight_fn=None, conditional=False):
+        device='cpu', weight_fn=None, conditional=False,
+        loss_func=None):
     """
     model: instance of nn.Module
     data_loader: Dictionary of pytorch.util.data.DataSet for training and
@@ -172,6 +173,8 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
         likelihood = 'bce'
     if optimizer is None:
         optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
+    if loss_func is None:
+        loss_func = loss_function
 
     all_train_loss = []
     for epoch in range(epochs):
@@ -198,11 +201,7 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                     else:
                         data = T(img.float()).to(device)
                     recon_batch, mu, logvar = model(data)
-                    # loss = loss_function(recon_batch, data.view(-1, D+3),
-                    #                      mu, logvar, beta=model.beta)
-                    loss = loss_function(recon_batch, data,
-                                         mu, logvar, beta=model.beta,
-                                         likelihood=likelihood)
+                    loss = loss_func(recon_x=recon_batch, x=data, mu=mu, logvar=logvar)
                     model.optimizer.zero_grad()
                     if phase == 'train':
                         loss.backward()

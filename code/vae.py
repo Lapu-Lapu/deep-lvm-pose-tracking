@@ -8,6 +8,7 @@ from torch import Tensor as T
 
 from contextlib import ExitStack
 import numpy as np
+from math import pi
 
 
 def reparameterize(mu, logvar):
@@ -93,15 +94,17 @@ def loss_function(recon_x, x, mu, logvar, beta=1, likelihood='mse'):
     Reconstruction + KL divergence losses summed over all elements
     and averaged over batch
     """
+    M, D = recon_x.shape
     if likelihood == 'bce':  ## Binary cross entropy
+        # x_hat \log(x) + (1-x_hat) \log(1-x)
         rec_err = F.binary_cross_entropy(recon_x, x, reduction='sum')
     elif likelihood == 'mse': ## Mean squared error
-        rec_err = torch.mean((recon_x - x)**2)
+        rec_err = 0.5 * (torch.mean((recon_x - x)**2) + M * D * np.log(0.5 * pi))
     # see Appendix B from VAE paper:
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
     # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
     KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1)
-    KLD = torch.mean(KLD)
+    KLD = torch.sum(KLD)
     return rec_err + beta * KLD
 
 
@@ -190,6 +193,8 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                     if phase == 'train':
                         loss.backward()
                         epoch_loss += [loss.item()]
+                        # grad = loss.grad
+                        # import pdb; pdb.set_trace()
                         optimizer.step()
                     else:
                         epoch_loss += [loss.item()]

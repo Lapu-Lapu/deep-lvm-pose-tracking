@@ -6,6 +6,9 @@ from torch import nn, optim
 from torch.nn import functional as F
 from torch import Tensor as T
 
+from contextlib import ExitStack
+import numpy as np
+
 
 def reparameterize(mu, logvar):
     std = torch.exp(0.5*logvar)
@@ -62,18 +65,13 @@ class VAE(nn.Module):
         h1 = F.relu(self.fc1(x))
         return self.fc21(h1), self.fc22(h1)
 
-    def reparameterize(self, mu, logvar):
-        std = torch.exp(0.5*logvar)
-        eps = torch.randn_like(std)
-        return mu + eps*std
-
     def decode(self, z):
         h3 = F.relu(self.fc3(z))
         return torch.sigmoid(self.fc4(h3))
 
     def forward(self, x):
         mu, logvar = self.encode(x.view(-1, self.input_dim))
-        z = self.reparameterize(mu, logvar)
+        z = reparameterize(mu, logvar)
         return self.decode(z), mu, logvar
 
     def to(self, device):
@@ -84,8 +82,10 @@ class VAE(nn.Module):
         self.train()
         train_loss = []
         for epoch in range(epochs):
-            with tqdm(enumerate(batch_generator)) as pbar:
-                for batch_idx, batch in pbar:
+            with tqdm(batch_generator) as pbar:
+                batch_idx = -1
+                for batch in pbar:
+                    batch_idx += 1
                     if batch_idx > max_iter:
                         print("Reached maximal number of iterations.")
                         break
@@ -94,7 +94,7 @@ class VAE(nn.Module):
                     self.optimizer.zero_grad()
                     recon_batch, mu, logvar = self(data)
                     loss = loss_function(recon_batch, data.view(-1, self.input_dim),
-                                         mu, logvar)
+                                         mu, logvar, likelihood='bce')
                     loss.backward()
                     train_loss += [loss.item()/len(data)]
                     self.optimizer.step()
@@ -105,17 +105,21 @@ class VAE(nn.Module):
         return train_loss
 
 
-def loss_function(recon_x, x, mu, logvar):
+def loss_function(recon_x, x, mu, logvar, beta=1, likelihood='mse'):
     """
-    Reconstruction + KL divergence losses summed over all elements and batch
+    Reconstruction + KL divergence losses summed over all elements
+    and averaged over batch
     """
-    BCE = F.binary_cross_entropy(recon_x, x, reduction='sum')
+    if likelihood == 'bce':  ## Binary cross entropy
+        rec_err = F.binary_cross_entropy(recon_x, x, reduction='sum')
+    elif likelihood == 'mse': ## Mean squared error
+        rec_err = torch.mean((recon_x - x)**2)
     # see Appendix B from VAE paper:
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
-    # https://arxiv.org/abs/1312.6114
     # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-    KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-    return BCE + KLD
+    KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1)
+    KLD = torch.mean(KLD)
+    return rec_err + beta * KLD
 
 
 class convVAE(nn.Module):
@@ -153,6 +157,72 @@ class convVAE(nn.Module):
 
     def decode(self, z):
         pass
+
+
+def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
+        device='cpu', weight_fn=None, conditional=False):
+    """
+    model: instance of nn.Module
+    data_loader: Dictionary of pytorch.util.data.DataSet for training and
+                 validation
+    """
+    if conditional:
+        likelihood = 'mse'
+    else:
+        likelihood = 'bce'
+    if optimizer is None:
+        optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
+
+    all_train_loss = []
+    for epoch in range(epochs):
+        for phase in ['train', 'val']:
+            epoch_loss = []
+            N = len(data_loader[phase].dataset)
+            M = data_loader[phase].batch_size
+            with ExitStack() as stack:
+                pbar = stack.enter_context(tqdm(data_loader[phase]))
+                if phase == 'train':
+                    model.train()
+                else:
+                    model.eval()
+                    stack.enter_context(torch.no_grad())
+
+                batch_idx = 0
+                for batch in pbar:
+                    batch_idx += 1
+                    img = batch['image'].view(data_loader[phase].batch_size, -1)
+                    if conditional:
+                        label = batch['angles']
+                        batch = torch.cat((img, label), dim=1).float()
+                        data = T(batch.float()).to(device)
+                    else:
+                        data = T(img.float()).to(device)
+                    recon_batch, mu, logvar = model(data)
+                    # loss = loss_function(recon_batch, data.view(-1, D+3),
+                    #                      mu, logvar, beta=model.beta)
+                    loss = loss_function(recon_batch, data,
+                                         mu, logvar, beta=model.beta,
+                                         likelihood=likelihood)
+                    model.optimizer.zero_grad()
+                    if phase == 'train':
+                        loss.backward()
+                        epoch_loss += [loss.item()]
+                        model.optimizer.step()
+                    else:
+                        epoch_loss += [loss.item()]
+                    if verbose:
+                        pbar.set_description(
+                            f"({phase}) Epoch {epoch}, Loss at batch {batch_idx:05d}: {loss.item()*M/N:.2E}"
+                        )
+            if phase == 'train':
+                all_train_loss += epoch_loss
+                epoch_loss = loss.item()
+            else:
+                epoch_loss = np.sum(np.array(epoch_loss))
+            print(f'{phase} loss: {epoch_loss*M/N:.2E}')
+            if weight_fn is not None:
+                torch.save(model.state_dict(), weight_fn)
+    return all_train_loss
 
 if __name__ == '__main__':
     cVAE(1, 1)

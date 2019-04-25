@@ -8,6 +8,7 @@ class HierarchyImages(Dataset):
     def __init__(self, angles=None,
                  bone_lengths=None,
                  key_marker_width=1,
+                 normalize=True,
                  img_shape=(28, 28)):
         """
         :param angles:
@@ -24,6 +25,7 @@ class HierarchyImages(Dataset):
         self.include_origin = True
         self.img_shape = img_shape
         self.key_marker_width = key_marker_width
+        self.normalize = normalize
 
     def __len__(self):
         return len(self.angles)
@@ -35,6 +37,9 @@ class HierarchyImages(Dataset):
                                 size=self.img_shape,
                                 fwhm=self.key_marker_width,
                                 include_origin=self.include_origin)
+        if self.normalize:
+            # img = img - 0.5
+            pose = 1 + (pose / (2*np.pi))
         sample = {'image': img, 'angles': pose}
         return sample
 

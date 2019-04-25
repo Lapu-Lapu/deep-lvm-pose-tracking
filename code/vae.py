@@ -49,7 +49,8 @@ class cVAE(nn.Module):
 
 class VAE(cVAE):
     def __init__(self, input_dim, bottleneck=5, hidden=40):
-        cVAE.__init__(self, input_dim, bottleneck=5, hidden=40, cond_data_len=0)
+        cVAE.__init__(self, input_dim, bottleneck=bottleneck,
+                      hidden=hidden, cond_data_len=0)
 
     def forward(self, x):
         mu, logvar = self.encode(x)
@@ -165,12 +166,13 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
             N = len(data_loader[phase].dataset)
             M = data_loader[phase].batch_size
             with ExitStack() as stack:
-                pbar = stack.enter_context(tqdm(data_loader[phase]))
                 if phase == 'train':
                     model.train()
+                    pbar = stack.enter_context(tqdm(data_loader[phase]))
                 else:
                     model.eval()
                     stack.enter_context(torch.no_grad())
+                    pbar = stack.enter_context(tqdm(data_loader[phase], disable=True))
 
                 batch_idx = 0
                 for batch in pbar:
@@ -191,7 +193,7 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                         optimizer.step()
                     else:
                         epoch_loss += [loss.item()]
-                    if verbose:
+                    if verbose and phase == 'train':
                         pbar.set_description(
                             f"({phase}) Epoch {epoch}, Loss at batch {batch_idx:05d}: {loss.item()*M/N:.2E}"
                         )

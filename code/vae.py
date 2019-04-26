@@ -18,28 +18,39 @@ def reparameterize(mu, logvar):
 
 
 class cVAE(nn.Module):
-    def __init__(self, input_dim, cond_data_len, bottleneck=5, hidden=40):
+    def __init__(self, input_dim, cond_data_len, latent_dim=5, hidden=40):
         nn.Module.__init__(self)
         self.enc = nn.ModuleList([
             nn.Linear(input_dim, hidden),
-            nn.Linear(hidden, 2 * bottleneck)
+            nn.Linear(hidden, 2 * latent_dim)
         ])
+        self.enc_activations = [
+            F.relu,
+            lambda x: x
+        ]
         self.dec = nn.ModuleList([
-            nn.Linear(bottleneck + cond_data_len, hidden),
+            nn.Linear(latent_dim + cond_data_len, hidden),
             nn.Linear(hidden, input_dim)
         ])
+        self.dec_activations = [
+            F.relu,
+            torch.sigmoid
+        ]
         self.optimizer = torch.optim.SGD(self.parameters(), lr=1e-4)
-        self.bottleneck = bottleneck
+        self.latent_dim = latent_dim
         self.cond_data_len = cond_data_len
 
     def encode(self, x):
-        h = F.relu(self.enc[0](x))
-        out = self.enc[1](h)
-        return out[:, :self.bottleneck], out[:, self.bottleneck:]
+        out = x
+        for layer, activation in zip(self.enc, self.enc_activations):
+            out = activation(layer(out))
+        return out[:, :self.latent_dim], out[:, self.latent_dim:]
 
     def decode(self, z):
-        h = F.relu(self.dec[0](z))
-        return torch.sigmoid(self.dec[1](h))
+        out = z
+        for layer, activation in zip(self.dec, self.dec_activations):
+            out = activation(layer(out))
+        return out
 
     def forward(self, x):
         mu, logvar = self.encode(x)
@@ -49,8 +60,8 @@ class cVAE(nn.Module):
 
 
 class VAE(cVAE):
-    def __init__(self, input_dim, bottleneck=5, hidden=40):
-        cVAE.__init__(self, input_dim, bottleneck=bottleneck,
+    def __init__(self, input_dim, latent_dim=5, hidden=40):
+        cVAE.__init__(self, input_dim, latent_dim=latent_dim,
                       hidden=hidden, cond_data_len=0)
 
     def forward(self, x):
@@ -93,13 +104,17 @@ def loss_function(recon_x, x, mu, logvar, beta=1, likelihood='mse'):
     """
     Reconstruction + KL divergence losses summed over all elements
     and averaged over batch
+    recon_x: reconstructed input (batch_size, dimension)
+    x: input (batch_size, dimension)
+    mu: \mu(x) of latent variable (batch_size, latent_dim)
+    logvar: \log(\sigma^2) of latent variable of input (batch_size, latent_dim)
     """
     M, D = recon_x.shape
     if likelihood == 'bce':  ## Binary cross entropy
         # x_hat \log(x) + (1-x_hat) \log(1-x)
         rec_err = F.binary_cross_entropy(recon_x, x, reduction='sum')
     elif likelihood == 'mse': ## Mean squared error
-        rec_err = 0.5 * (torch.mean((recon_x - x)**2) + M * D * np.log(0.5 * pi))
+        rec_err = 0.5 * torch.mean((recon_x - x)**2)  # + 0.5*M*D*np.log(0.5*pi)
     # see Appendix B from VAE paper:
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
     # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
@@ -109,7 +124,7 @@ def loss_function(recon_x, x, mu, logvar, beta=1, likelihood='mse'):
 
 
 class convVAE(nn.Module):
-    def __init__(self, bottleneck=7):
+    def __init__(self, latent_dim=7):
         """
         Work in progress
         """
@@ -123,8 +138,8 @@ class convVAE(nn.Module):
             nn.MaxPool2d(2, stride=1)  # b, 1, 10
         ]
         # flatten: (1, 10, 10) -> 100
-        self.to_mu = nn.Linear(80, bottleneck)
-        self.to_sig = nn.Linear(bottleneck, 80)
+        self.to_mu = nn.Linear(80, latent_dim)
+        self.to_sig = nn.Linear(latent_dim, 80)
         # unflatten : 100 -> (1, 10, 10)
         self.decoder = [
             F.interpolate(size=(20, 20)),

@@ -30,15 +30,18 @@ class cVAE(nn.Module):
             lambda x: x
         ]
         self.dec = nn.ModuleList([
+            # nn.Linear(latent_dim + cond_data_len, input_dim),
             nn.Linear(latent_dim + cond_data_len, hidden),
-            nn.Linear(hidden, input_dim)
+            nn.Linear(hidden, 2 * input_dim)
         ])
         self.dec_activations = [
             F.relu,
-            torch.sigmoid
+            # torch.sigmoid
+            lambda x: x
         ]
-        self.optimizer = torch.optim.SGD(self.parameters(), lr=1e-4)
+        # self.optimizer = torch.optim.SGD(self.parameters(), lr=1e-4)
         self.latent_dim = latent_dim
+        self.input_dim = input_dim
         self.cond_data_len = cond_data_len
 
     def encode(self, x):
@@ -52,13 +55,14 @@ class cVAE(nn.Module):
         out = z
         for layer, activation in zip(self.dec, self.dec_activations):
             out = activation(layer(out))
-        return out
+        return out[:, :self.input_dim], out[:, self.input_dim:]
 
     def forward(self, x):
         mu, logvar = self.encode(x)
         z = reparameterize(mu, logvar)
         z_cond = torch.cat((z, x[:, -self.cond_data_len:]), dim=1)
-        return self.decode(z_cond), mu, logvar
+        mu_obs, var_obs = self.decode(z_cond)
+        return mu_obs, var_obs, mu, logvar
 
 
 class VAE(cVAE):
@@ -66,31 +70,33 @@ class VAE(cVAE):
         cVAE.__init__(self, input_dim, latent_dim=latent_dim,
                       hidden=hidden, cond_data_len=0)
 
+    def decode(self, z):
+        out = z
+        for layer, activation in zip(self.dec, self.dec_activations):
+            out = activation(layer(out))
+        return out[:, :self.input_dim], out[:, self.input_dim:]
+
     def forward(self, x):
         mu, logvar = self.encode(x)
         z = reparameterize(mu, logvar)
         return self.decode(z), mu, logvar
 
-    def to(self, device):
-        self.device = device
-        return super().to(device)
 
-
-def loss_function(recon_x, x, mu, logvar, beta=1, likelihood='mse'):
+def loss_function(decoded, x, mu, logvar, beta=1, likelihood='mse'):
     """
     Reconstruction + KL divergence losses summed over all elements
     and averaged over batch
-    recon_x: reconstructed input (batch_size, dimension)
+    decoded: reconstructed input (batch_size, dimension)
     x: input (batch_size, dimension)
     mu: \mu(x) - mean of q(z|x, \phi) (batch_size, latent_dim)
     logvar: \log(\sigma^2) of latent variable of input (batch_size, latent_dim)
     """
-    M, D = recon_x.shape
     if likelihood == 'bce':  ## Binary cross entropy
         # x_hat \log(x) + (1-x_hat) \log(1-x)
-        rec_err = F.binary_cross_entropy(recon_x, x, reduction='sum')
+        rec_err = F.binary_cross_entropy(decoded, x, reduction='sum')
     elif likelihood == 'mse': ## Mean squared error
-        rec_err = 0.5 * torch.mean((recon_x - x)**2)  # + 0.5*M*D*np.log(0.5*pi)
+        mu_x, var_x = decoded
+        rec_err = 0.5 * torch.mean((mu_x - x)**2/var_x)  # + 0.5*M*D*np.log(0.5*pi)
     # see Appendix B from VAE paper:
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
     # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
@@ -178,8 +184,8 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                         data = T(batch.float()).to(device)
                     else:
                         data = T(img.float()).to(device)
-                    recon_batch, mu, logvar = model(data)
-                    loss = loss_func(recon_x=recon_batch, x=data, mu=mu, logvar=logvar)
+                    mu_x, var_x, mu, logvar = model(data)
+                    loss = loss_func(decoded=(mu_x, var_x), x=data, mu=mu, logvar=logvar)
                     optimizer.zero_grad()
                     if phase == 'train':
                         loss.backward()

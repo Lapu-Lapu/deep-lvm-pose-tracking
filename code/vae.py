@@ -16,6 +16,9 @@ def reparameterize(mu, logvar):
     eps = torch.randn_like(std)
     return mu + eps*std
 
+def mean_var_activation(x):
+    N = x.shape[1]
+    return x[:, :N//2], F.softplus(x[:, N//2:])
 
 class cVAE(nn.Module):
     def __init__(self, input_dim, cond_data_len, latent_dim=5, hidden=40,
@@ -24,19 +27,22 @@ class cVAE(nn.Module):
         self.likelihood = likelihood
         if likelihood == 'normal':
             dec_out_factor = 2
-            def dec_out_func(out):
-                return out[:, :self.input_dim], out[:, self.input_dim:]
-            self.dec_out_func = dec_out_func
+            out_activation = mean_var_activation
         else:
             dec_out_factor = 1
-            self.dec_out_func = lambda out: out
+            out_activation = lambda x: (torch.sigmoid(x), None)
+
+        # Encoder
         self.enc = nn.ModuleList([
-            nn.Linear(input_dim, 2 * latent_dim)
+            nn.Linear(input_dim, hidden),
+            nn.Linear(hidden, 2 * latent_dim)
         ])
         self.enc_activations = [
-            # F.relu,
-            lambda x: x
+            F.relu,
+            F.relu
         ]
+
+        # Decoder
         self.dec = nn.ModuleList([
             # nn.Linear(latent_dim + cond_data_len, input_dim),
             nn.Linear(latent_dim + cond_data_len, hidden),
@@ -44,8 +50,9 @@ class cVAE(nn.Module):
         ])
         self.dec_activations = [
             F.relu,
-            torch.sigmoid if likelihood == 'bernoulli' else lambda x: x
+            out_activation
         ]
+
         self.latent_dim = latent_dim
         self.input_dim = input_dim
         self.cond_data_len = cond_data_len
@@ -60,7 +67,7 @@ class cVAE(nn.Module):
         out = torch.cat((z, observed), dim=1)
         for layer, activation in zip(self.dec, self.dec_activations):
             out = activation(layer(out))
-        return self.dec_out_func(out)
+        return out
 
     def forward(self, x):
         mu, logvar = self.encode(x)
@@ -81,13 +88,13 @@ class VAE(cVAE):
         out = z
         for layer, activation in zip(self.dec, self.dec_activations):
             out = activation(layer(out))
-        # return self.dec_out_func(out)
         return out
 
     def forward(self, x):
         mu, logvar = self.encode(x)
         z = reparameterize(mu, logvar)
-        return self.decode(z), mu, logvar
+        mu_x, var_x = self.decode(z)
+        return mu_x, var_x, mu, logvar
 
 
 def loss_function(decoded, x, mu, logvar, beta=1, likelihood='normal'):
@@ -101,7 +108,7 @@ def loss_function(decoded, x, mu, logvar, beta=1, likelihood='normal'):
     """
     if likelihood == 'bernoulli':  ## Binary cross entropy
         # x_hat \log(x) + (1-x_hat) \log(1-x)
-        rec_err = F.binary_cross_entropy(decoded, x, reduction='sum')
+        rec_err = F.binary_cross_entropy(decoded[0], x, reduction='sum')
     elif likelihood == 'normal': ## Mean squared error
         mu_x, var_x = decoded
         rec_err = 0.5 * torch.mean((mu_x - x)**2/var_x)  # + 0.5*M*D*np.log(0.5*pi)
@@ -192,14 +199,14 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                         data = T(batch.float()).to(device)
                     else:
                         data = T(img.float()).to(device)
-                    decoded, mu, logvar = model(data)
-                    loss = loss_func(decoded=decoded, x=data, mu=mu, logvar=logvar)
+
+                    mu_x, var_x, mu, logvar = model(data)
+                    loss = loss_func(decoded=(mu_x, var_x), x=data, mu=mu, logvar=logvar)
+
                     optimizer.zero_grad()
                     if phase == 'train':
                         loss.backward()
                         epoch_loss += [loss.item()]
-                        # grad = loss.grad
-                        # import pdb; pdb.set_trace()
                         optimizer.step()
                     else:
                         epoch_loss += [loss.item()]

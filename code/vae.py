@@ -21,11 +21,12 @@ class cVAE(nn.Module):
     def __init__(self, input_dim, cond_data_len, latent_dim=5, hidden=40):
         nn.Module.__init__(self)
         self.enc = nn.ModuleList([
-            nn.Linear(input_dim, hidden),
-            nn.Linear(hidden, 2 * latent_dim)
+            # nn.Linear(input_dim, hidden),
+            # nn.Linear(hidden, 2 * latent_dim)
+            nn.Linear(input_dim, 2 * latent_dim)
         ])
         self.enc_activations = [
-            F.relu,
+            # F.relu,
             lambda x: x
         ]
         self.dec = nn.ModuleList([
@@ -42,6 +43,7 @@ class cVAE(nn.Module):
 
     def encode(self, x):
         out = x
+        # import pdb; pdb.set_trace()
         for layer, activation in zip(self.enc, self.enc_activations):
             out = activation(layer(out))
         return out[:, :self.latent_dim], out[:, self.latent_dim:]
@@ -73,32 +75,6 @@ class VAE(cVAE):
         self.device = device
         return super().to(device)
 
-    def fit(self, batch_generator, epochs=1, max_iter=10e10, verbose=True):
-        self.train()
-        train_loss = []
-        for epoch in range(epochs):
-            with tqdm(batch_generator) as pbar:
-                batch_idx = -1
-                for batch in pbar:
-                    batch_idx += 1
-                    if batch_idx > max_iter:
-                        print("Reached maximal number of iterations.")
-                        break
-                    batch = batch['image'].float()
-                    data = T(batch).to(self.device)
-                    self.optimizer.zero_grad()
-                    recon_batch, mu, logvar = self(data)
-                    loss = loss_function(recon_batch, data.view(-1, self.input_dim),
-                                         mu, logvar, likelihood='bce')
-                    loss.backward()
-                    train_loss += [loss.item()/len(data)]
-                    self.optimizer.step()
-                    if verbose:
-                        pbar.set_description(
-                            f"Epoch {epoch}, Loss at batch {batch_idx:05d}: {loss.item()/len(data):.1f}"
-                        )
-        return train_loss
-
 
 def loss_function(recon_x, x, mu, logvar, beta=1, likelihood='mse'):
     """
@@ -106,7 +82,7 @@ def loss_function(recon_x, x, mu, logvar, beta=1, likelihood='mse'):
     and averaged over batch
     recon_x: reconstructed input (batch_size, dimension)
     x: input (batch_size, dimension)
-    mu: \mu(x) of latent variable (batch_size, latent_dim)
+    mu: \mu(x) - mean of q(z|x, \phi) (batch_size, latent_dim)
     logvar: \log(\sigma^2) of latent variable of input (batch_size, latent_dim)
     """
     M, D = recon_x.shape
@@ -119,7 +95,7 @@ def loss_function(recon_x, x, mu, logvar, beta=1, likelihood='mse'):
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
     # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
     KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1)
-    KLD = torch.sum(KLD)
+    KLD = torch.mean(KLD)
     return rec_err + beta * KLD
 
 

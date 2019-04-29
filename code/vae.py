@@ -44,13 +44,12 @@ class cVAE(nn.Module):
 
         # Decoder
         self.dec = nn.ModuleList([
-            # nn.Linear(latent_dim + cond_data_len, input_dim),
-            # nn.Linear(latent_dim + cond_data_len, hidden),
-            # nn.Linear(hidden, dec_out_factor * input_dim)
-            nn.Linear(latent_dim + cond_data_len, dec_out_factor * input_dim)
+            nn.Linear(latent_dim + cond_data_len, hidden),
+            nn.Linear(hidden, dec_out_factor * input_dim)
+            # nn.Linear(latent_dim + cond_data_len, dec_out_factor * input_dim)
         ])
         self.dec_activations = [
-            # F.relu,
+            F.relu,
             out_activation
         ]
 
@@ -160,7 +159,7 @@ class convVAE(nn.Module):
 
 def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
         device='cpu', weight_fn=None, conditional=False,
-        loss_func=None):
+        loss_func=None, plotter=None):
     """
     model: instance of nn.Module
     data_loader: Dictionary of pytorch.util.data.DataSet for training and
@@ -207,7 +206,12 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                     optimizer.zero_grad()
                     if phase == 'train':
                         loss.backward()
-                        epoch_loss += [loss.item()]
+                        prev_loss = loss.item()
+                        if plotter is not None and batch_idx % 20 == 0:
+                            plotter.plot('Loss', 'Val', 'Loss', len(epoch_loss), prev_loss)
+                            plotter.plot_image('reconstruction', mu_x)
+                            plotter.plot_image('original', data)
+                        epoch_loss += [prev_loss]
                         optimizer.step()
                     else:
                         epoch_loss += [loss.item()]

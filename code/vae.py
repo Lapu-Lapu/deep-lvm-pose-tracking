@@ -45,11 +45,12 @@ class cVAE(nn.Module):
         # Decoder
         self.dec = nn.ModuleList([
             # nn.Linear(latent_dim + cond_data_len, input_dim),
-            nn.Linear(latent_dim + cond_data_len, hidden),
-            nn.Linear(hidden, dec_out_factor * input_dim)
+            # nn.Linear(latent_dim + cond_data_len, hidden),
+            # nn.Linear(hidden, dec_out_factor * input_dim)
+            nn.Linear(latent_dim + cond_data_len, dec_out_factor * input_dim)
         ])
         self.dec_activations = [
-            F.relu,
+            # F.relu,
             out_activation
         ]
 

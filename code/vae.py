@@ -115,9 +115,11 @@ def loss_function(decoded, x, mu, logvar, beta=1, likelihood='normal'):
     # see Appendix B from VAE paper:
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
     # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
+    # import pdb; pdb.set_trace()
     KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1)
     KLD = torch.mean(KLD)
-    return rec_err + beta * KLD
+    # KLD = T(np.array([42]))[0]
+    return rec_err, beta * KLD
 
 
 class convVAE(nn.Module):
@@ -201,7 +203,16 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                         data = T(img.float()).to(device)
 
                     mu_x, var_x, mu, logvar = model(data)
-                    loss = loss_func(decoded=(mu_x, var_x), x=data, mu=mu, logvar=logvar)
+                    neg_ell, kl = loss_func(decoded=(mu_x, var_x), x=data, mu=mu, logvar=logvar)
+
+                    # auxillary loss: 
+                    # https://www.reddit.com/r/MachineLearning/comments/al0lvl/d_variational_autoencoders_are_not_autoencoders/efaf4tl?utm_source=share&utm_medium=web2x
+                    z = torch.normal(mean=torch.zeros((1, model.latent_dim)),
+                                     std=torch.ones((1, model.latent_dim))).to('cuda')
+                    x = model.decode(z)
+                    aux = F.mse_loss(z, model.encode(x[0])[0])
+
+                    loss = neg_ell + kl + aux
 
                     optimizer.zero_grad()
                     if phase == 'train':
@@ -209,6 +220,8 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                         prev_loss = loss.item()
                         if plotter is not None and batch_idx % 20 == 0:
                             plotter.plot('Loss', 'Val', 'Loss', len(epoch_loss), prev_loss)
+                            plotter.plot('neg_ell', 'Val', 'neg_ell', len(epoch_loss), neg_ell.item())
+                            plotter.plot('kl', 'Val', 'kl', len(epoch_loss), kl.item())
                             plotter.plot_image('reconstruction', mu_x)
                             plotter.plot_image('original', data)
                         epoch_loss += [prev_loss]

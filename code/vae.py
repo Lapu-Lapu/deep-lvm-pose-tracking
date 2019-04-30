@@ -42,7 +42,8 @@ class cVAE(nn.Module):
 
         # Input
         self.inp_img = nn.Linear(input_dim, hidden//2)
-        self.inp_pose = nn.Linear(pose_dim, hidden//2)
+        if pose_dim > 0:
+            self.inp_pose = nn.Linear(pose_dim, hidden//2)
 
         # Encoder
         self.enc = nn.ModuleList([
@@ -96,14 +97,21 @@ class VAE(cVAE):
         cVAE.__init__(self, input_dim, latent_dim=latent_dim,
                       hidden=hidden, pose_dim=0,
                       likelihood=likelihood)
+        self.inp_img = nn.Linear(input_dim, hidden)
 
-    def decode(self, z):
+    def encode(self, x, p=None):
+        out = F.relu(self.inp_img(x))
+        for layer, activation in zip(self.enc, self.enc_activations):
+            out = activation(layer(out))
+        return out[:, :self.latent_dim], out[:, self.latent_dim:]
+
+    def decode(self, z, observed=None):
         out = z
         for layer, activation in zip(self.dec, self.dec_activations):
             out = activation(layer(out))
         return out
 
-    def forward(self, x):
+    def forward(self, x, pose=None):
         mu, logvar = self.encode(x)
         z = reparameterize(mu, logvar)
         mu_x, var_x = self.decode(z)

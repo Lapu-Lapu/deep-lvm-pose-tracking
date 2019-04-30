@@ -89,9 +89,13 @@ class cVAE(nn.Module):
         # observed = x[:, -self.pose_dim:]
         mu_obs, var_obs = self.decode(z, pose)
         mu_img = mu_obs[:, :self.input_dim]
-        var_img = var_obs[:, :self.input_dim]
         mu_label = mu_obs[:, self.input_dim:]
-        var_label = var_obs[:, self.input_dim:]
+        if self.likelihood != 'bernoulli':
+            var_img = var_obs[:, :self.input_dim]
+            var_label = var_obs[:, self.input_dim:]
+        else:
+            var_img = None
+            var_label = None
         return mu_img, var_img, mu_label, var_label, mu, logvar
 
 
@@ -135,7 +139,7 @@ def loss_function(decoded, x, mu, logvar, beta=1, likelihood='normal'):
     mu_img, var_img, mu_label, var_label = decoded
     if likelihood == 'bernoulli':  ## Binary cross entropy
         # x_hat \log(x) + (1-x_hat) \log(1-x)
-        rec_err = F.binary_cross_entropy(decoded[0], x, reduction='sum')
+        rec_err = F.binary_cross_entropy(mu_img, img, reduction='sum')
         rec_err += F.mse_loss(mu_label, pose, reduction='sum')
     elif likelihood == 'normal': ## Mean squared error
         rec_err = 0.5 * torch.mean((mu_img - img)**2/var_img)  # + 0.5*M*D*np.log(0.5*pi)

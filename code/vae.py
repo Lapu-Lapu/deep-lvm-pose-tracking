@@ -6,9 +6,11 @@ from torch import nn, optim
 from torch.nn import functional as F
 from torch import Tensor as T
 
-from contextlib import ExitStack
 import numpy as np
+
+from contextlib import ExitStack
 from math import pi
+from functools import partial
 
 
 def reparameterize(mu, logvar):
@@ -179,7 +181,7 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
     if optimizer is None:
         optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
     if loss_func is None:
-        loss_func = loss_function
+        loss_func = partial(loss_function, beta=1, likelihood=model.likelihood)
 
     all_train_loss = []
     for epoch in range(epochs):

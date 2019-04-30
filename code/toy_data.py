@@ -39,7 +39,7 @@ class HierarchyImages(Dataset):
                                 include_origin=self.include_origin)
         if self.normalize:
             # img = img - 0.5
-            pose = 1 + (pose / (2*np.pi))
+            pose = 0.5 + (pose / (2*np.pi))
         sample = {'image': img, 'angles': pose}
         return sample
 

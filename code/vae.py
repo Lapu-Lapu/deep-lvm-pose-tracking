@@ -25,7 +25,7 @@ class cVAE(nn.Module):
                  likelihood='bernoulli'):
         nn.Module.__init__(self)
         self.likelihood = likelihood
-        if likelihood == 'normal':
+        if likelihood in ['normal', 'cauchy', 'laplace']:
             dec_out_factor = 2
             out_activation = mean_var_activation
         else:
@@ -39,7 +39,8 @@ class cVAE(nn.Module):
         ])
         self.enc_activations = [
             F.relu,
-            F.relu
+            # F.relu
+            lambda x: x
         ]
 
         # Decoder
@@ -112,13 +113,21 @@ def loss_function(decoded, x, mu, logvar, beta=1, likelihood='normal'):
     elif likelihood == 'normal': ## Mean squared error
         mu_x, var_x = decoded
         rec_err = 0.5 * torch.mean((mu_x - x)**2/var_x)  # + 0.5*M*D*np.log(0.5*pi)
+    elif likelihood == 'cauchy':
+        x_0, gamma_sqr = decoded
+        rec_err = -torch.log(gamma_sqr) + torch.log((x_0-x)**2+gamma_sqr)
+        rec_err = torch.mean(rec_err)
+    elif likelihood == 'laplace':
+        mu_x, var_x = decoded
+        rec_err = torch.mean(torch.abs(mu_x - x)/var_x + 2 * var_x)
+
+
     # see Appendix B from VAE paper:
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
     # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
     # import pdb; pdb.set_trace()
     KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1)
     KLD = torch.mean(KLD)
-    # KLD = T(np.array([42]))[0]
     return rec_err, beta * KLD
 
 
@@ -167,10 +176,6 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
     data_loader: Dictionary of pytorch.util.data.DataSet for training and
                  validation
     """
-    if conditional:
-        likelihood = 'normal'
-    else:
-        likelihood = 'bernoulli'
     if optimizer is None:
         optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
     if loss_func is None:
@@ -205,12 +210,14 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                     mu_x, var_x, mu, logvar = model(data)
                     neg_ell, kl = loss_func(decoded=(mu_x, var_x), x=data, mu=mu, logvar=logvar)
 
-                    # auxillary loss: 
-                    # https://www.reddit.com/r/MachineLearning/comments/al0lvl/d_variational_autoencoders_are_not_autoencoders/efaf4tl?utm_source=share&utm_medium=web2x
-                    z = torch.normal(mean=torch.zeros((1, model.latent_dim)),
-                                     std=torch.ones((1, model.latent_dim))).to('cuda')
-                    x = model.decode(z)
-                    aux = F.mse_loss(z, model.encode(x[0])[0])
+                    auxiliary_loss = False
+                    if auxiliary_loss:
+                        # https://www.reddit.com/r/MachineLearning/comments/al0lvl/d_variational_autoencoders_are_not_autoencoders/efaf4tl?utm_source=share&utm_medium=web2x
+                        z = torch.normal(mean=torch.zeros((100, model.latent_dim)),
+                                         std=torch.ones((100, model.latent_dim))).to('cuda')
+                        x = model.decode(z)
+                        # import pdb; pdb.set_trace()
+                    aux = F.mse_loss(z, model.encode(x[0])[0]) if auxiliary_loss else 0
 
                     loss = neg_ell + kl + aux
 
@@ -222,6 +229,8 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                             plotter.plot('Loss', 'Val', 'Loss', len(epoch_loss), prev_loss)
                             plotter.plot('neg_ell', 'Val', 'neg_ell', len(epoch_loss), neg_ell.item())
                             plotter.plot('kl', 'Val', 'kl', len(epoch_loss), kl.item())
+                            if auxiliary_loss:
+                                plotter.plot('aux', 'Val', 'aux', len(epoch_loss), aux.item())
                             plotter.plot_image('reconstruction', mu_x)
                             plotter.plot_image('original', data)
                         epoch_loss += [prev_loss]

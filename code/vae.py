@@ -19,11 +19,16 @@ def reparameterize(mu, logvar):
     return mu + eps*std
 
 def mean_var_activation(x):
+    """
+    Activation function for distributions using 2 parameters,
+    with the second one constraint to (0, \infty).
+    E.g. Normal: mu and sigma
+    """
     N = x.shape[1]
     return x[:, :N//2], F.softplus(x[:, N//2:])
 
 class cVAE(nn.Module):
-    def __init__(self, input_dim, cond_data_len, latent_dim=5, hidden=40,
+    def __init__(self, input_dim, pose_dim, latent_dim=5, hidden=40,
                  likelihood='bernoulli'):
         nn.Module.__init__(self)
         self.likelihood = likelihood
@@ -32,24 +37,29 @@ class cVAE(nn.Module):
             out_activation = mean_var_activation
         else:
             dec_out_factor = 1
+            # use dummy output for consistency
             out_activation = lambda x: (torch.sigmoid(x), None)
+
+        # Input
+        self.inp_img = nn.Linear(input_dim, hidden//2)
+        self.inp_pose = nn.Linear(pose_dim, hidden//2)
 
         # Encoder
         self.enc = nn.ModuleList([
-            nn.Linear(input_dim, hidden),
+            nn.Linear(hidden, 2 * latent_dim)
+        ])
+        self.enc_label = nn.ModuleList([
             nn.Linear(hidden, 2 * latent_dim)
         ])
         self.enc_activations = [
-            F.relu,
-            # F.relu
             lambda x: x
         ]
 
         # Decoder
         self.dec = nn.ModuleList([
-            nn.Linear(latent_dim + cond_data_len, hidden),
+            nn.Linear(latent_dim + pose_dim, hidden),
             nn.Linear(hidden, dec_out_factor * input_dim)
-            # nn.Linear(latent_dim + cond_data_len, dec_out_factor * input_dim)
+            # nn.Linear(latent_dim + pose_dim, dec_out_factor * input_dim)
         ])
         self.dec_activations = [
             F.relu,
@@ -58,10 +68,10 @@ class cVAE(nn.Module):
 
         self.latent_dim = latent_dim
         self.input_dim = input_dim
-        self.cond_data_len = cond_data_len
+        self.pose_dim = pose_dim
 
-    def encode(self, x):
-        out = x
+    def encode(self, x, p):
+        out = F.relu(torch.cat((self.inp_img(x), self.inp_pose(p)), dim=1))
         for layer, activation in zip(self.enc, self.enc_activations):
             out = activation(layer(out))
         return out[:, :self.latent_dim], out[:, self.latent_dim:]
@@ -72,11 +82,11 @@ class cVAE(nn.Module):
             out = activation(layer(out))
         return out
 
-    def forward(self, x):
-        mu, logvar = self.encode(x)
+    def forward(self, x, pose):
+        mu, logvar = self.encode(x, pose)
         z = reparameterize(mu, logvar)
-        observed = x[:, -self.cond_data_len:]
-        mu_obs, var_obs = self.decode(z, observed)
+        # observed = x[:, -self.pose_dim:]
+        mu_obs, var_obs = self.decode(z, pose)
         return mu_obs, var_obs, mu, logvar
 
 
@@ -84,7 +94,7 @@ class VAE(cVAE):
     def __init__(self, input_dim, latent_dim=5, hidden=40,
                  likelihood='bernoulli'):
         cVAE.__init__(self, input_dim, latent_dim=latent_dim,
-                      hidden=hidden, cond_data_len=0,
+                      hidden=hidden, pose_dim=0,
                       likelihood=likelihood)
 
     def decode(self, z):
@@ -202,14 +212,13 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                 for batch in pbar:
                     batch_idx += 1
                     img = batch['image'].view(data_loader[phase].batch_size, -1)
-                    if conditional:
-                        label = batch['angles']
-                        batch = torch.cat((img, label), dim=1).float()
-                        data = T(batch.float()).to(device)
-                    else:
-                        data = T(img.float()).to(device)
+                    # if conditional:
+                    #     batch = torch.cat((img, pose), dim=1).float()
+                    #     data = T(batch.float()).to(device)
+                    pose = T(batch['angles'].float()).to(device) if conditional else None
+                    data = T(img.float()).to(device)
 
-                    mu_x, var_x, mu, logvar = model(data)
+                    mu_x, var_x, mu, logvar = model(data, pose)
                     neg_ell, kl = loss_func(decoded=(mu_x, var_x), x=data, mu=mu, logvar=logvar)
 
                     auxiliary_loss = False

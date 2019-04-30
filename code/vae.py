@@ -59,7 +59,7 @@ class cVAE(nn.Module):
         # Decoder
         self.dec = nn.ModuleList([
             nn.Linear(latent_dim + pose_dim, hidden),
-            nn.Linear(hidden, dec_out_factor * input_dim)
+            nn.Linear(hidden, dec_out_factor * (input_dim+pose_dim))
             # nn.Linear(latent_dim + pose_dim, dec_out_factor * input_dim)
         ])
         self.dec_activations = [
@@ -88,7 +88,11 @@ class cVAE(nn.Module):
         z = reparameterize(mu, logvar)
         # observed = x[:, -self.pose_dim:]
         mu_obs, var_obs = self.decode(z, pose)
-        return mu_obs, var_obs, mu, logvar
+        mu_img = mu_obs[:, :self.input_dim]
+        var_img = var_obs[:, :self.input_dim]
+        mu_label = mu_obs[:, self.input_dim:]
+        var_label = var_obs[:, self.input_dim:]
+        return mu_img, var_img, mu_label, var_label, mu, logvar
 
 
 class VAE(cVAE):
@@ -127,12 +131,15 @@ def loss_function(decoded, x, mu, logvar, beta=1, likelihood='normal'):
     mu: \mu(x) - mean of q(z|x, \phi) (batch_size, latent_dim)
     logvar: \log(\sigma^2) of latent variable of input (batch_size, latent_dim)
     """
+    img, pose  = x
+    mu_img, var_img, mu_label, var_label = decoded
     if likelihood == 'bernoulli':  ## Binary cross entropy
         # x_hat \log(x) + (1-x_hat) \log(1-x)
         rec_err = F.binary_cross_entropy(decoded[0], x, reduction='sum')
+        rec_err += F.mse_loss(mu_label, pose, reduction='sum')
     elif likelihood == 'normal': ## Mean squared error
-        mu_x, var_x = decoded
-        rec_err = 0.5 * torch.mean((mu_x - x)**2/var_x)  # + 0.5*M*D*np.log(0.5*pi)
+        rec_err = 0.5 * torch.mean((mu_img - img)**2/var_img)  # + 0.5*M*D*np.log(0.5*pi)
+        rec_err += 0.5 * torch.mean((mu_label - pose)**2/var_label)
     elif likelihood == 'cauchy':
         x_0, gamma_sqr = decoded
         rec_err = -torch.log(gamma_sqr) + torch.log((x_0-x)**2+gamma_sqr)
@@ -140,7 +147,6 @@ def loss_function(decoded, x, mu, logvar, beta=1, likelihood='normal'):
     elif likelihood == 'laplace':
         mu_x, var_x = decoded
         rec_err = torch.mean(torch.abs(mu_x - x)/var_x + 2 * var_x)
-
 
     # see Appendix B from VAE paper:
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
@@ -220,14 +226,13 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                 for batch in pbar:
                     batch_idx += 1
                     img = batch['image'].view(data_loader[phase].batch_size, -1)
-                    # if conditional:
-                    #     batch = torch.cat((img, pose), dim=1).float()
-                    #     data = T(batch.float()).to(device)
+
                     pose = T(batch['angles'].float()).to(device) if conditional else None
                     data = T(img.float()).to(device)
 
-                    mu_x, var_x, mu, logvar = model(data, pose)
-                    neg_ell, kl = loss_func(decoded=(mu_x, var_x), x=data, mu=mu, logvar=logvar)
+                    mu_img, var_img, mu_label, var_label, mu, logvar = model(data, pose)
+                    neg_ell, kl = loss_func(decoded=(mu_img, var_img, mu_label, var_label),
+                                            x=(data, pose), mu=mu, logvar=logvar)
 
                     auxiliary_loss = False
                     if auxiliary_loss:
@@ -250,7 +255,7 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                             plotter.plot('kl', 'Val', 'kl', len(epoch_loss), kl.item())
                             if auxiliary_loss:
                                 plotter.plot('aux', 'Val', 'aux', len(epoch_loss), aux.item())
-                            plotter.plot_image('reconstruction', mu_x)
+                            plotter.plot_image('reconstruction', mu_img)
                             plotter.plot_image('original', data)
                         epoch_loss += [prev_loss]
                         optimizer.step()

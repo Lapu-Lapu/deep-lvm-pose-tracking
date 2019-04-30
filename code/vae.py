@@ -6,9 +6,11 @@ from torch import nn, optim
 from torch.nn import functional as F
 from torch import Tensor as T
 
-from contextlib import ExitStack
 import numpy as np
+
+from contextlib import ExitStack
 from math import pi
+from functools import partial
 
 
 def reparameterize(mu, logvar):
@@ -17,12 +19,17 @@ def reparameterize(mu, logvar):
     return mu + eps*std
 
 def mean_var_activation(x):
+    """
+    Activation function for distributions using 2 parameters,
+    with the second one constraint to (0, \infty).
+    E.g. Normal: mu and sigma
+    """
     N = x.shape[1]
     return x[:, :N//2], F.softplus(x[:, N//2:])
 
 class cVAE(nn.Module):
-    def __init__(self, input_dim, cond_data_len, latent_dim=5, hidden=40,
-                 likelihood='bernoulli', pre_dim=200):
+    def __init__(self, input_dim, pose_dim, latent_dim=5, hidden=40,
+                 likelihood='bernoulli'):
         nn.Module.__init__(self)
         self.likelihood = likelihood
         if likelihood in ['normal', 'cauchy', 'laplace']:
@@ -30,30 +37,34 @@ class cVAE(nn.Module):
             out_activation = mean_var_activation
         else:
             dec_out_factor = 1
+            # use dummy output for consistency
             out_activation = lambda x: (torch.sigmoid(x), None)
 
-        # pre PCA
+        # pre PCA for image data
         self.pre = nn.ModulList([
             nn.Linear(input_dim, pre_dim)
             nn.Linear(pre_dim, input_dim))
         ])
 
+        # Input
+        self.inp_img = nn.Linear(pre_dim, hidden//2)
+        if pose_dim > 0:
+            self.inp_pose = nn.Linear(pose_dim, hidden//2)
+
         # Encoder
         self.enc = nn.ModuleList([
-            nn.Linear(pre_dim, hidden),
             nn.Linear(hidden, 2 * latent_dim)
         ])
+
         self.enc_activations = [
-            F.relu,
-            # F.relu
             lambda x: x
         ]
 
         # Decoder
         self.dec = nn.ModuleList([
-            nn.Linear(latent_dim + cond_data_len, hidden),
-            nn.Linear(hidden, dec_out_factor * pre_dim)
-            # nn.Linear(latent_dim + cond_data_len, dec_out_factor * input_dim)
+            nn.Linear(latent_dim + pose_dim, hidden),
+            nn.Linear(hidden, dec_out_factor * input_dim)
+            # nn.Linear(latent_dim + pose_dim, dec_out_factor * input_dim)
         ])
         self.dec_activations = [
             F.relu,
@@ -62,15 +73,15 @@ class cVAE(nn.Module):
 
         self.latent_dim = latent_dim
         self.input_dim = input_dim
-        self.cond_data_len = cond_data_len
+        self.pose_dim = pose_dim
 
     def prePCA(self, x):
         h = self.pre[0](x)
         rec = self.pre[1](h)
         return h, rec
 
-    def encode(self, x):
-        out = x
+    def encode(self, x, p):
+        out = F.relu(torch.cat((self.inp_img(x), self.inp_pose(p)), dim=1))
         for layer, activation in zip(self.enc, self.enc_activations):
             out = activation(layer(out))
         return out[:, :self.latent_dim], out[:, self.latent_dim:]
@@ -81,12 +92,12 @@ class cVAE(nn.Module):
             out = activation(layer(out))
         return out
 
-    def forward(self, x):
+    def forward(self, x, pose):
         h, rec = self.prePCA(x)
-        mu, logvar = self.encode(h)
+        mu, logvar = self.encode(h, pose)
         z = reparameterize(mu, logvar)
-        observed = x[:, -self.cond_data_len:]
-        mu_obs, var_obs = self.decode(z, observed)
+        # observed = x[:, -self.pose_dim:]
+        mu_obs, var_obs = self.decode(z, pose)
         return mu_obs, var_obs, mu, logvar, h, rec
 
     def loss(self, x, c, mu_obs, var_obs, mu, logvar, h, rec):
@@ -102,16 +113,23 @@ class VAE(cVAE):
     def __init__(self, input_dim, latent_dim=5, hidden=40,
                  likelihood='bernoulli'):
         cVAE.__init__(self, input_dim, latent_dim=latent_dim,
-                      hidden=hidden, cond_data_len=0,
+                      hidden=hidden, pose_dim=0,
                       likelihood=likelihood)
+        self.inp_img = nn.Linear(input_dim, hidden)
 
-    def decode(self, z):
+    def encode(self, x, p=None):
+        out = F.relu(self.inp_img(x))
+        for layer, activation in zip(self.enc, self.enc_activations):
+            out = activation(layer(out))
+        return out[:, :self.latent_dim], out[:, self.latent_dim:]
+
+    def decode(self, z, observed=None):
         out = z
         for layer, activation in zip(self.dec, self.dec_activations):
             out = activation(layer(out))
         return out
 
-    def forward(self, x):
+    def forward(self, x, pose=None):
         mu, logvar = self.encode(x)
         z = reparameterize(mu, logvar)
         mu_x, var_x = self.decode(z)
@@ -199,7 +217,7 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
     if optimizer is None:
         optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
     if loss_func is None:
-        loss_func = loss_function
+        loss_func = partial(loss_function, beta=1, likelihood=model.likelihood)
 
     all_train_loss = []
     for epoch in range(epochs):
@@ -220,14 +238,15 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                 for batch in pbar:
                     batch_idx += 1
                     img = batch['image'].view(data_loader[phase].batch_size, -1)
-                    if conditional:
-                        label = batch['angles'].float().to(device)
-                        # batch = torch.cat((img, label), dim=1).float()
-                        # data = T(batch.float()).to(device)
-                    else:
-                        data = T(img.float()).to(device)
 
-                    mu_x, var_x, mu, logvar, h, rec = model(data)
+                    # if conditional:
+                    #     batch = torch.cat((img, pose), dim=1).float()
+                    #     data = T(batch.float()).to(device)
+                    pose = T(batch['angles'].float()).to(device) if conditional else None
+                    data = T(img.float()).to(device)
+
+                    mu_x, var_x, mu, logvar, h, rec = model(data, pose)
+
                     neg_ell, kl = loss_func(decoded=(mu_x, var_x), x=data, mu=mu, logvar=logvar)
                     prePCA, neg_ell, kl = model.loss(x, label, mu_x, var_x, mu, logvar, h, rec)
 

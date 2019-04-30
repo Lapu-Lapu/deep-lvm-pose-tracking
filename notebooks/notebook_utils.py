@@ -1,9 +1,10 @@
 import matplotlib.pyplot as plt
 import torch
 import numpy as np
-from itertools import product
-
 from visdom import Visdom
+
+from itertools import product
+from functools import partial
 
 # useful for plotting on a 3x3 grid:
 to_ind = np.array(list(product(range(3), range(3))))
@@ -28,11 +29,16 @@ def plot_sample_grid(sample, img_shape):
     plt.tight_layout()
     plt.show()
 
-def draw_samples(model):
+def draw_samples(model, observed=None):
     model.to('cpu')
+    if observed is None:
+        decode = model.decode
+    else:
+        observed = torch.Tensor(observed)
+        decode = partial(model.decode, observed=observed)
     with torch.no_grad():
         sample = torch.randn(9, model.enc[-1].out_features//2)
-        decoded = model.decode(sample)
+        decoded = decode(sample)
         sample = decoded[0].numpy()
     return sample
 

@@ -22,7 +22,7 @@ def mean_var_activation(x):
 
 class cVAE(nn.Module):
     def __init__(self, input_dim, cond_data_len, latent_dim=5, hidden=40,
-                 likelihood='bernoulli'):
+                 likelihood='bernoulli', pre_dim=200):
         nn.Module.__init__(self)
         self.likelihood = likelihood
         if likelihood in ['normal', 'cauchy', 'laplace']:
@@ -32,9 +32,15 @@ class cVAE(nn.Module):
             dec_out_factor = 1
             out_activation = lambda x: (torch.sigmoid(x), None)
 
+        # pre PCA
+        self.pre = nn.ModulList([
+            nn.Linear(input_dim, pre_dim)
+            nn.Linear(pre_dim, input_dim))
+        ])
+
         # Encoder
         self.enc = nn.ModuleList([
-            nn.Linear(input_dim, hidden),
+            nn.Linear(pre_dim, hidden),
             nn.Linear(hidden, 2 * latent_dim)
         ])
         self.enc_activations = [
@@ -46,7 +52,7 @@ class cVAE(nn.Module):
         # Decoder
         self.dec = nn.ModuleList([
             nn.Linear(latent_dim + cond_data_len, hidden),
-            nn.Linear(hidden, dec_out_factor * input_dim)
+            nn.Linear(hidden, dec_out_factor * pre_dim)
             # nn.Linear(latent_dim + cond_data_len, dec_out_factor * input_dim)
         ])
         self.dec_activations = [
@@ -57,6 +63,11 @@ class cVAE(nn.Module):
         self.latent_dim = latent_dim
         self.input_dim = input_dim
         self.cond_data_len = cond_data_len
+
+    def prePCA(self, x):
+        h = self.pre[0](x)
+        rec = self.pre[1](h)
+        return h, rec
 
     def encode(self, x):
         out = x
@@ -71,11 +82,20 @@ class cVAE(nn.Module):
         return out
 
     def forward(self, x):
-        mu, logvar = self.encode(x)
+        h, rec = self.prePCA(x)
+        mu, logvar = self.encode(h)
         z = reparameterize(mu, logvar)
         observed = x[:, -self.cond_data_len:]
         mu_obs, var_obs = self.decode(z, observed)
-        return mu_obs, var_obs, mu, logvar
+        return mu_obs, var_obs, mu, logvar, h, rec
+
+    def loss(self, x, c, mu_obs, var_obs, mu, logvar, h, rec):
+        prePCA = torch.mean((rec-x)**2)
+        neg_llh_x = torch.mean((h-mu_obs)**2/var_obs)
+        # TODO: add loss term for label.
+        KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp(), dim=1)
+        KLD = torch.mean(KLD)
+        return prePCA, neg_llh, KLD
 
 
 class VAE(cVAE):
@@ -201,14 +221,15 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                     batch_idx += 1
                     img = batch['image'].view(data_loader[phase].batch_size, -1)
                     if conditional:
-                        label = batch['angles']
-                        batch = torch.cat((img, label), dim=1).float()
-                        data = T(batch.float()).to(device)
+                        label = batch['angles'].float().to(device)
+                        # batch = torch.cat((img, label), dim=1).float()
+                        # data = T(batch.float()).to(device)
                     else:
                         data = T(img.float()).to(device)
 
-                    mu_x, var_x, mu, logvar = model(data)
+                    mu_x, var_x, mu, logvar, h, rec = model(data)
                     neg_ell, kl = loss_func(decoded=(mu_x, var_x), x=data, mu=mu, logvar=logvar)
+                    prePCA, neg_ell, kl = model.loss(x, label, mu_x, var_x, mu, logvar, h, rec)
 
                     auxiliary_loss = False
                     if auxiliary_loss:

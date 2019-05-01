@@ -200,14 +200,14 @@ class convVAE(nn.Module):
 
 def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
         device='cpu', weight_fn=None, conditional=False,
-        loss_func=None, plotter=None):
+        loss_func=None, plotter=None, beta=1):
     """
     model: instance of nn.Module
     data_loader: Dictionary of pytorch.util.data.DataSet for training and
                  validation
     """
     if optimizer is None:
-        optimizer = torch.optim.SGD(model.parameters(), lr=1e-3)
+        optimizer = torch.optim.RMSprop(model.parameters(), lr=1e-3)
     if loss_func is None:
         loss_func = partial(loss_function, beta=1, likelihood=model.likelihood)
 
@@ -247,16 +247,25 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                         # import pdb; pdb.set_trace()
                     aux = F.mse_loss(z, model.encode(x[0])[0]) if auxiliary_loss else 0
 
-                    loss = neg_ell + kl + aux
+                    loss = neg_ell + beta * kl + aux
+                    # import pdb; pdb.set_trace()
 
                     optimizer.zero_grad()
                     if phase == 'train':
-                        loss.backward()
+                        with torch.autograd.detect_anomaly():
+                            loss.backward()
                         prev_loss = loss.item()
                         if plotter is not None and batch_idx % 20 == 0:
-                            plotter.plot('Loss', 'Val', 'Loss', len(epoch_loss), prev_loss)
-                            plotter.plot('neg_ell', 'Val', 'neg_ell', len(epoch_loss), neg_ell.item())
-                            plotter.plot('kl', 'Val', 'kl', len(epoch_loss), kl.item())
+                            plotter.plot(
+                                f'Loss_{beta:.2f}_{model.latent_dim}',
+                                'Val', f'Loss_{beta:.2f}_{model.latent_dim}',
+                                len(epoch_loss), prev_loss)
+                            plotter.plot(f'neg_ell_{beta:.2f}_{model.latent_dim}',
+                                         'Val', f'neg_ell_{beta:.2f}_{model.latent_dim}',
+                                         len(epoch_loss), neg_ell.item())
+                            plotter.plot(f'kl_{beta:.2f}_{model.latent_dim}',
+                                         'Val', f'kl_{beta:.2f}_{model.latent_dim}',
+                                         len(epoch_loss), kl.item())
                             if auxiliary_loss:
                                 plotter.plot('aux', 'Val', 'aux', len(epoch_loss), aux.item())
                             plotter.plot_image('reconstruction', mu_img)
@@ -277,7 +286,8 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
             print(f'{phase} loss: {epoch_loss*M/N:.2E}')
             if weight_fn is not None:
                 torch.save(model.state_dict(), weight_fn)
-    return all_train_loss
+    # return all_train_loss
+    return epoch_loss  # last validation loss for gpyopt
 
 if __name__ == '__main__':
     cVAE(1, 1)

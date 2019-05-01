@@ -51,9 +51,9 @@ class VisdomLinePlotter(object):
         self.plots = {}
     def plot(self, var_name, split_name, title_name, x, y):
         if var_name not in self.plots:
-            self.plots[var_name] = self.viz.line(X=np.array([x,x]), 
-                                                 Y=np.array([y,y]), 
-                                                 env=self.env, 
+            self.plots[var_name] = self.viz.line(X=np.array([x,x]),
+                                                 Y=np.array([y,y]),
+                                                 env=self.env,
                                                  opts=dict(
                                                      legend=[split_name],
                                                      title=title_name,
@@ -61,13 +61,13 @@ class VisdomLinePlotter(object):
                                                      ylabel=var_name)
                                                 )
         else:
-            self.viz.line(X=np.array([x]), 
-                          Y=np.array([y]), 
-                          env=self.env, 
-                          win=self.plots[var_name], 
-                          name=split_name, 
+            self.viz.line(X=np.array([x]),
+                          Y=np.array([y]),
+                          env=self.env,
+                          win=self.plots[var_name],
+                          name=split_name,
                           update = 'append')
-            
+
     def plot_image(self, var_name, inp):
         inp = inp[0, :4096].cpu().detach().numpy()
         if var_name not in self.plots:

@@ -211,10 +211,14 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
     if loss_func is None:
         loss_func = partial(loss_function, beta=1, likelihood=model.likelihood)
 
+    stop = False
     all_train_loss = []
     for epoch in range(epochs):
+        if stop:
+            break
         for phase in ['train', 'val']:
             epoch_loss = []
+            kls = []
             N = len(data_loader[phase].dataset)
             M = data_loader[phase].batch_size
             with ExitStack() as stack:
@@ -255,7 +259,7 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                         with torch.autograd.detect_anomaly():
                             loss.backward()
                         prev_loss = loss.item()
-                        if plotter is not None and batch_idx % 20 == 0:
+                        if plotter is not None and batch_idx % 50 == 0:
                             plotter.plot(
                                 f'Loss_{beta:.2f}_{model.latent_dim}',
                                 'Val', f'Loss_{beta:.2f}_{model.latent_dim}',
@@ -270,7 +274,14 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                                 plotter.plot('aux', 'Val', 'aux', len(epoch_loss), aux.item())
                             plotter.plot_image('reconstruction', mu_img)
                             plotter.plot_image('original', data)
+                            e_np = np.array(epoch_loss)
+                            if (len(e_np) > 2000 and
+                                np.abs(np.diff(e_np[-1900:]).mean()) < 1e-4):
+                                print('Loss stopped decreasing.')
+                                stop = True
+                                break
                         epoch_loss += [prev_loss]
+                        kls += [kl.item()]
                         optimizer.step()
                     else:
                         epoch_loss += [loss.item()]

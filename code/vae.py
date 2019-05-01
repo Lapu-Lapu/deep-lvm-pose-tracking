@@ -13,9 +13,9 @@ from math import pi
 from functools import partial
 
 
-def reparameterize(mu, logvar):
+def reparameterize(mu, logvar, anneal=1):
     std = torch.exp(0.5*logvar)
-    eps = torch.randn_like(std)
+    eps = anneal*torch.randn_like(std)
     return mu + eps*std
 
 def mean_var_activation(x):
@@ -93,10 +93,10 @@ class cVAE(nn.Module):
             out = activation(layer(out))
         return out
 
-    def forward(self, x, pose):
+    def forward(self, x, pose, anneal=1):
         h, rec = self.prePCA(x)
         mu, logvar = self.encode(h, pose)
-        z = reparameterize(mu, logvar)
+        z = reparameterize(mu, logvar, anneal=anneal)
 
         # shape (:, pre_dim+pose_dim), (:, pre_dim+pose_dim)
         mu_obs, var_obs = self.decode(z, pose)
@@ -235,7 +235,7 @@ class convVAE(nn.Module):
 
 def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
         device='cpu', weight_fn=None, conditional=False,
-        loss_func=None, plotter=None, beta=1):
+        loss_func=None, plotter=None, beta=1, stop_crit=1e-4):
     """
     model: instance of nn.Module
     data_loader: Dictionary of pytorch.util.data.DataSet for training and
@@ -273,10 +273,9 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                     pose = T(batch['angles'].float()).to(device) if conditional else None
                     img = T(img.float()).to(device)
 
-                    # mu_img, var_img, mu_label, var_label, mu, logvar = model(data, pose)
-                    img_param, latent_param, pose_param, pre_param = model(img, pose)
-                    # neg_ell, kl = loss_func(decoded=(mu_img, var_img, mu_label, var_label),
-                    #                         x=(data, pose), mu=mu, logvar=logvar)
+                    anneal = epoch/(epochs-1)
+                    img_param, latent_param, pose_param, pre_param = model(img, pose,
+                                                                           anneal=anneal)
                     prePCA, neg_llh_img, neg_llh_pose, kl = model.loss(img, pose,
                                                                        img_param, latent_param,
                                                                        pose_param, pre_param)
@@ -290,11 +289,22 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                         # import pdb; pdb.set_trace()
                     aux = F.mse_loss(z, model.encode(x[0])[0]) if auxiliary_loss else 0
 
-                    loss = prePCA + neg_llh_img + neg_llh_pose + beta * kl
+                    loss = prePCA + neg_llh_img + neg_llh_pose + anneal * beta * kl
                     # import pdb; pdb.set_trace()
 
                     optimizer.zero_grad()
                     if phase == 'train':
+
+                        # # weaken decoder
+                        # if batch_idx % 10 == 9:
+                        #     for layer in model.dec:
+                        #         for param in layer.parameters():
+                        #             param.requires_grad = True
+                        # else:
+                        #     for layer in model.dec:
+                        #         for param in layer.parameters():
+                        #             param.requires_grad = False
+
                         with torch.autograd.detect_anomaly():
                             loss.backward()
                         prev_loss = loss.item()
@@ -303,19 +313,25 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                                 f'Loss_{beta:.2f}_{model.latent_dim}',
                                 'Val', f'Loss_{beta:.2f}_{model.latent_dim}',
                                 len(epoch_loss), prev_loss)
-                            plotter.plot(f'neg_ell_{beta:.2f}_{model.latent_dim}',
-                                         'Val', f'neg_ell_{beta:.2f}_{model.latent_dim}',
-                                         len(epoch_loss), neg_ell.item())
+                            plotter.plot(f'pca_{beta:.2f}_{model.latent_dim}',
+                                         'Val', f'pca_{beta:.2f}_{model.latent_dim}',
+                                         len(epoch_loss), prePCA.item())
+                            plotter.plot(f'img_llh_{beta:.2f}_{model.latent_dim}',
+                                         'Val', f'img_llh_{beta:.2f}_{model.latent_dim}',
+                                         len(epoch_loss), neg_llh_img.item())
+                            plotter.plot(f'pose_llh_{beta:.2f}_{model.latent_dim}',
+                                         'Val', f'pose_llh_{beta:.2f}_{model.latent_dim}',
+                                         len(epoch_loss), neg_llh_pose.item())
                             plotter.plot(f'kl_{beta:.2f}_{model.latent_dim}',
                                          'Val', f'kl_{beta:.2f}_{model.latent_dim}',
                                          len(epoch_loss), kl.item())
                             if auxiliary_loss:
                                 plotter.plot('aux', 'Val', 'aux', len(epoch_loss), aux.item())
-                            plotter.plot_image('reconstruction', mu_img)
-                            plotter.plot_image('original', data)
+                            plotter.plot_image('reconstruction', model.pre[1](img_param['mean']))
+                            plotter.plot_image('original', img)
                             e_np = np.array(epoch_loss)
                             if (len(e_np) > 2000 and
-                                np.abs(np.diff(e_np[-1900:]).mean()) < 1e-4):
+                                np.abs(np.diff(e_np[-1900:]).mean()) < stop_crit):
                                 print('Loss stopped decreasing.')
                                 stop = True
                                 break

@@ -345,64 +345,22 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                     optimizer.zero_grad()
                     if phase in ['pretrain', 'train']:
 
-                        # # weaken decoder
-                        # if batch_idx % 10 == 9:
-                        #     for layer in model.dec:
-                        #         for param in layer.parameters():
-                        #             param.requires_grad = True
-                        # else:
-                        #     for layer in model.dec:
-                        #         for param in layer.parameters():
-                        #             param.requires_grad = False
-
                         with torch.autograd.detect_anomaly():
                             loss.backward()
                         prev_loss = loss.item()
                         if plotter is not None and batch_idx % 50 == 0:
-                            fmt = (beta, model.latent_dim)
-                            plotter.plot(
-                                'Loss_{:.2f}_{}'.format(*fmt),
-                                # 'Val', f'Loss_{beta:.2f}_{model.latent_dim}',
-                                'Val', 'Loss',
-                                len(epoch_loss), prev_loss)
-                            #
-                            # if model.pre_dim != model.input_dim:
-                            #     plotter.plot(f'pca_{beta:.2f}_{model.latent_dim}',
-                            #                  # 'Val', f'pca_{beta:.2f}_{model.latent_dim}',
-                            #                  'Val', 'pca',
-                            #                  len(epoch_loss), prePCA.item())
-                            #
-                            # plotter.plot(f'img_llh_{beta:.2f}_{model.latent_dim}',
-                            #              # 'Val', f'img_llh_{beta:.2f}_{model.latent_dim}',
-                            #              'Val', 'img_llh',
-                            #              len(epoch_loss), neg_llh_img.item())
-                            #
-                            # if model.pose_dim > 0:
-                            #     plotter.plot(f'pose_llh_{beta:.2f}_{model.latent_dim}',
-                            #                  'Val', f'pose_llh_{beta:.2f}_{model.latent_dim}',
-                            #                  len(epoch_loss), neg_llh_pose.item())
+                            visdom_plot(plotter, model, beta, epoch_loss,
+                                        prev_loss, phase, prePCA, neg_llh_img,
+                                        neg_llh_pose, kl, anneal, pre_param,
+                                        img_param, img, auxiliary_loss)
 
-                            plotter.plot('kl_{:.2f}_{}'.format(*fmt),
-                                         # 'Val', f'kl_{beta:.2f}_{model.latent_dim}',
-                                         'Val', 'kl',
-                                         len(epoch_loss), kl.item())
-
-                            plotter.plot('l'.format(*fmt),
-                                         # 'Val', f'kl_{beta:.2f}_{model.latent_dim}',
-                                         'Val', 'kl',
-                                         len(epoch_loss), anneal)
-
-                            if auxiliary_loss:
-                                plotter.plot('aux', 'Val', 'aux', len(epoch_loss), aux.item())
-                            plotter.plot_image('reconstruction', model.pre[1](img_param['mean']))
-                            plotter.plot_image('pca', pre_param['img'])
-                            plotter.plot_image('original', img)
                             e_np = np.array(epoch_loss)
                             if (len(e_np) > 2000 and
                                 np.abs(np.diff(e_np[-1900:]).mean()) < stop_crit):
                                 print('Loss stopped decreasing.')
                                 stop = True
                                 break
+
                         epoch_loss += [prev_loss]
                         kls += [kl.item()]
                         optimizer.step()
@@ -422,6 +380,43 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                 torch.save(model.state_dict(), weight_fn)
     # return all_train_loss
     return epoch_loss  # last validation loss for gpyopt
+
+
+def visdom_plot(plotter, model, beta, epoch_loss,
+                prev_loss, phase, prePCA, neg_llh_img,
+                neg_llh_pose, kl, anneal, pre_param,
+                img_param, img, auxiliary_loss):
+    fmt = (beta, model.latent_dim)
+    plotter.plot('Loss_{:.2f}_{}'.format(*fmt), 'Val', 'Loss',
+                 len(epoch_loss), prev_loss)
+    if phase != 'pretrain':
+        if model.pre_dim != model.input_dim:
+            plotter.plot('pca', 'Val', 'pca', len(epoch_loss), prePCA.item())
+
+        plotter.plot(f'img_llh_{beta:.2f}_{model.latent_dim}',
+                     'Val', 'img_llh',
+                     len(epoch_loss), neg_llh_img.item())
+
+        if model.pose_dim > 0:
+            plotter.plot(f'pose_llh_{beta:.2f}_{model.latent_dim}',
+                         'Val', f'pose_llh_{beta:.2f}_{model.latent_dim}',
+                         len(epoch_loss), neg_llh_pose.item())
+
+    plotter.plot('kl_{:.2f}_{}'.format(*fmt),
+                 # 'Val', f'kl_{beta:.2f}_{model.latent_dim}',
+                 'Val', 'kl',
+                 len(epoch_loss), kl.item())
+
+    plotter.plot('l'.format(*fmt),
+                 # 'Val', f'kl_{beta:.2f}_{model.latent_dim}',
+                 'Val', 'kl',
+                 len(epoch_loss), anneal)
+
+    if auxiliary_loss:
+        plotter.plot('aux', 'Val', 'aux', len(epoch_loss), aux.item())
+    plotter.plot_image('reconstruction', model.pre[1](img_param['mean']))
+    plotter.plot_image('pca', pre_param['img'])
+    plotter.plot_image('original', img)
 
 if __name__ == '__main__':
     cVAE(1, 1)

@@ -180,7 +180,7 @@ def joint_loss(img, pose, img_param, latent_param, pose_param, pre_param):
     return prePCA, neg_llh_img, neg_llh_pose, KLD
 
 def return_kl_term(latent_param):
-    KLD = -0.5 * torch.mean(1 + latent_param['logvar']
+    KLD = -0.5 * torch.sum(1 + latent_param['logvar']
                            - latent_param['mean'].pow(2)
                            - latent_param['logvar'].exp(), dim=1)
     KLD = torch.mean(KLD)
@@ -286,14 +286,14 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
     stop = False  # is set to True if stopping criteria is fullfilled
 
     all_train_loss = []
-    phases = ['pretrain', 'train', 'val']
+    anneal = 0.0001
     for epoch in range(epochs):
         if stop:
             break
 
-        for phase in phases:
-            if phase == 'pretrain':
-                phases.remove('pretrain')
+        for phase in ['pretrain', 'train', 'val']:
+            if phase == 'pretrain' and epoch > 0:
+                continue
             epoch_loss = []
             kls = []
             N = len(data_loader[phase].dataset)
@@ -318,8 +318,6 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                     pose = T(batch['angles'].float()).to(device) if conditional else None
                     img = T(img.float()).to(device)
 
-                    anneal = ((M*batch_idx/N/3)**5
-                              if epoch == 1 else 1)
                     img_param, latent_param, pose_param, pre_param = model(img, pose)
                                                                            # anneal=anneal)
                     prePCA, neg_llh_img, neg_llh_pose, kl = joint_loss(img, pose,

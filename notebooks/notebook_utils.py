@@ -29,6 +29,12 @@ def plot_sample_grid(sample, img_shape):
     plt.tight_layout()
     plt.show()
 
+def compose(func1, func2):
+    return lambda x: func1(func2(x))
+
+def return_first(f):
+    return lambda y: (f(y)[0])
+
 def draw_samples(model, observed=None):
     model.to('cpu')
     if observed is None:
@@ -36,10 +42,16 @@ def draw_samples(model, observed=None):
     else:
         observed = torch.Tensor(observed)
         decode = partial(model.decode, observed=observed)
+
+    decode = return_first(decode)
+    if model.pre_dim > 0:
+        decode = compose(model.pre[1], decode)
+        # decode = compose(decode, lambda x: x)
+
     with torch.no_grad():
         sample = torch.randn(9, model.enc[-1].out_features//2)
         decoded = decode(sample)
-        sample = decoded[0].numpy()
+        sample = decoded.numpy()
     return sample
 
 

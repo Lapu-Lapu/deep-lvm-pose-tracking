@@ -25,11 +25,11 @@ def mean_var_activation(x):
     E.g. Normal: mu and sigma
     """
     N = x.shape[1]
-    return x[:, :N//2], F.softplus(x[:, N//2:])
+    return F.elu(x[:, :N//2]), F.softplus(x[:, N//2:])
 
 class cVAE(nn.Module):
     def __init__(self, input_dim, pose_dim, latent_dim=5, hidden=40,
-                 likelihood='bernoulli', pre_dim=200):
+                 likelihood='bernoulli', pre_dim=None):
         nn.Module.__init__(self)
         self.likelihood = likelihood
         if likelihood in ['normal', 'cauchy', 'laplace']:
@@ -40,11 +40,21 @@ class cVAE(nn.Module):
             # use dummy output for consistency
             out_activation = lambda x: (torch.sigmoid(x), None)
 
-        # pre PCA for image data
-        self.pre = nn.ModuleList([
-            nn.Linear(input_dim, pre_dim),
-            nn.Linear(pre_dim, input_dim)
-        ])
+        if pre_dim is None:
+            pre_dim = input_dim
+            self.prePCA = lambda x: (x, None)
+            self.pre = 2*[lambda x: x]
+        else:
+            # pre PCA for image data
+            def prePCA(x):
+                h = self.pre[0](x)
+                rec = self.pre[1](h)
+                return h, rec
+            self.prePCA = prePCA
+            self.pre = nn.ModuleList([
+                nn.Linear(input_dim, pre_dim),
+                nn.Linear(pre_dim, input_dim)
+            ])
 
         # Input
         self.inp_img = nn.Linear(pre_dim, hidden//2)
@@ -76,11 +86,6 @@ class cVAE(nn.Module):
         self.pre_dim = pre_dim
         self.pose_dim = pose_dim
 
-    def prePCA(self, x):
-        h = self.pre[0](x)
-        rec = self.pre[1](h)
-        return h, rec
-
     def encode(self, h, p):
         out = F.relu(torch.cat((self.inp_img(h), self.inp_pose(p)), dim=1))
         for layer, activation in zip(self.enc, self.enc_activations):
@@ -93,7 +98,14 @@ class cVAE(nn.Module):
             out = activation(layer(out))
         return out
 
-    def forward(self, x, pose, anneal=1):
+    def _get_pose_param(self, mu_obs, var_obs):
+        pose_param = {}
+        pose_param['mean'] = mu_obs[:, self.pre_dim:]
+        pose_param['var'] = (var_obs[:, self.pre_dim:]
+                              if self.likelihood != 'bernoulli' else None)
+        return pose_param
+
+    def forward(self, x, pose=None, anneal=1):
         h, rec = self.prePCA(x)
         mu, logvar = self.encode(h, pose)
         z = reparameterize(mu, logvar, anneal=anneal)
@@ -101,15 +113,13 @@ class cVAE(nn.Module):
         # shape (:, pre_dim+pose_dim), (:, pre_dim+pose_dim)
         mu_obs, var_obs = self.decode(z, pose)
 
-        img_param, latent_param, pose_param, pre_param = {}, {}, {}, {}
+        img_param, latent_param, pre_param = {}, {}, {}
 
         img_param['mean'] = mu_obs[:, :self.pre_dim]
         img_param['var'] = (var_obs[:, :self.pre_dim]
                             if self.likelihood != 'bernoulli' else None)
 
-        pose_param['mean'] = mu_obs[:, self.pre_dim:]
-        pose_param['var'] = (var_obs[:, self.pre_dim:]
-                              if self.likelihood != 'bernoulli' else None)
+        pose_param = self._get_pose_param(mu_obs, var_obs)
 
         pre_param['latent'] = h
         pre_param['img'] = rec
@@ -119,28 +129,15 @@ class cVAE(nn.Module):
 
         return img_param, latent_param, pose_param, pre_param
 
-    def loss(self, img, pose, img_param, latent_param, pose_param, pre_param):
-        prePCA = torch.mean((pre_param['img']-img)**2)
-        neg_llh_img = torch.mean(
-            (img_param['mean']-pre_param['latent'])**2/img_param['var']
-        )
-        neg_llh_pose = torch.mean(
-            (pose_param['mean']-pose)**2/pose_param['var']
-        )
-        KLD = -0.5 * torch.sum(1 + latent_param['logvar']
-                               - latent_param['mean'].pow(2)
-                               - latent_param['logvar'].exp(), dim=1)
-        KLD = torch.mean(KLD)
-        return prePCA, neg_llh_img, neg_llh_pose, KLD
-
 
 class VAE(cVAE):
     def __init__(self, input_dim, latent_dim=5, hidden=40,
+                 pre_dim=None,
                  likelihood='bernoulli'):
         cVAE.__init__(self, input_dim, latent_dim=latent_dim,
-                      hidden=hidden, pose_dim=0,
+                      hidden=hidden, pose_dim=0, pre_dim=pre_dim,
                       likelihood=likelihood)
-        self.inp_img = nn.Linear(input_dim, hidden)
+        self.inp_img = nn.Linear(self.pre_dim, hidden)
 
     def encode(self, x, p=None):
         out = F.relu(self.inp_img(x))
@@ -154,11 +151,40 @@ class VAE(cVAE):
             out = activation(layer(out))
         return out
 
-    def forward(self, x, pose=None):
+    def _get_pose_param(self, mu_obs, var_obs):
+        return None
+
+    def forward_deprec(self, x, pose=None):
         mu, logvar = self.encode(x)
         z = reparameterize(mu, logvar)
         mu_x, var_x = self.decode(z)
         return mu_x, var_x, mu, logvar
+
+
+def joint_loss(img, pose, img_param, latent_param, pose_param, pre_param):
+    """
+    Loss function including objective to learn PCA as preprocessing step
+    """
+    prePCA = (torch.mean((pre_param['img']-img)**2)
+              if pre_param['img'] is not None else 0)
+
+    neg_llh_img = torch.mean(
+        (img_param['mean']-pre_param['latent'])**2  #/img_param['var']
+    )
+
+    neg_llh_pose = torch.mean(
+        (pose_param['mean']-pose)**2/pose_param['var']
+    ) if pose is not None else 0
+
+    KLD = return_kl_term(latent_param)
+    return prePCA, neg_llh_img, neg_llh_pose, KLD
+
+def return_kl_term(latent_param):
+    KLD = -0.5 * torch.mean(1 + latent_param['logvar']
+                           - latent_param['mean'].pow(2)
+                           - latent_param['logvar'].exp(), dim=1)
+    KLD = torch.mean(KLD)
+    return KLD
 
 
 def loss_function(decoded, x, mu, logvar, beta=1, likelihood='normal'):
@@ -232,6 +258,17 @@ class convVAE(nn.Module):
     def decode(self, z):
         pass
 
+def pretrain(model, pre):
+    for layer in model.pre:
+        for param in layer.parameters():
+            param.requires_grad = pre
+    for layer in model.enc:
+        for param in layer.parameters():
+            param.requires_grad = not(pre)
+    for layer in model.dec:
+        for param in layer.parameters():
+            param.requires_grad = not(pre)
+
 
 def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
         device='cpu', weight_fn=None, conditional=False,
@@ -246,18 +283,25 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
     if loss_func is None:
         loss_func = partial(loss_function, beta=1, likelihood=model.likelihood)
 
-    stop = False
+    stop = False  # is set to True if stopping criteria is fullfilled
+
     all_train_loss = []
+    phases = ['pretrain', 'train', 'val']
     for epoch in range(epochs):
         if stop:
             break
-        for phase in ['train', 'val']:
+
+        for phase in phases:
+            if phase == 'pretrain':
+                phases.remove('pretrain')
             epoch_loss = []
             kls = []
             N = len(data_loader[phase].dataset)
             M = data_loader[phase].batch_size
+
+            # conditional context manager
             with ExitStack() as stack:
-                if phase == 'train':
+                if phase in ['pretrain', 'train']:
                     model.train()
                     pbar = stack.enter_context(tqdm(data_loader[phase]))
                 else:
@@ -265,18 +309,20 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                     stack.enter_context(torch.no_grad())
                     pbar = stack.enter_context(tqdm(data_loader[phase], disable=True))
 
-                batch_idx = 0
+                batch_idx = 0  # tqdm does not like enumerate
                 for batch in pbar:
                     batch_idx += 1
-                    img = batch['image'].view(data_loader[phase].batch_size, -1)
 
+                    # get data
+                    img = batch['image'].view(data_loader[phase].batch_size, -1)
                     pose = T(batch['angles'].float()).to(device) if conditional else None
                     img = T(img.float()).to(device)
 
-                    anneal = epoch/(epochs-1)
-                    img_param, latent_param, pose_param, pre_param = model(img, pose,
-                                                                           anneal=anneal)
-                    prePCA, neg_llh_img, neg_llh_pose, kl = model.loss(img, pose,
+                    anneal = ((M*batch_idx/N/3)**5
+                              if epoch == 1 else 1)
+                    img_param, latent_param, pose_param, pre_param = model(img, pose)
+                                                                           # anneal=anneal)
+                    prePCA, neg_llh_img, neg_llh_pose, kl = joint_loss(img, pose,
                                                                        img_param, latent_param,
                                                                        pose_param, pre_param)
 
@@ -289,11 +335,15 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                         # import pdb; pdb.set_trace()
                     aux = F.mse_loss(z, model.encode(x[0])[0]) if auxiliary_loss else 0
 
-                    loss = prePCA + neg_llh_img + neg_llh_pose + anneal * beta * kl
-                    # import pdb; pdb.set_trace()
+                    if phase in ['train', 'val']:
+                        loss = neg_llh_img + neg_llh_pose + anneal * beta * kl
+                        pretrain(model, False)
+                    else:
+                        loss = prePCA
+                        pretrain(model, True)
 
                     optimizer.zero_grad()
-                    if phase == 'train':
+                    if phase in ['pretrain', 'train']:
 
                         # # weaken decoder
                         # if batch_idx % 10 == 9:
@@ -309,25 +359,43 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                             loss.backward()
                         prev_loss = loss.item()
                         if plotter is not None and batch_idx % 50 == 0:
+                            fmt = (beta, model.latent_dim)
                             plotter.plot(
-                                f'Loss_{beta:.2f}_{model.latent_dim}',
-                                'Val', f'Loss_{beta:.2f}_{model.latent_dim}',
+                                'Loss_{:.2f}_{}'.format(*fmt),
+                                # 'Val', f'Loss_{beta:.2f}_{model.latent_dim}',
+                                'Val', 'Loss',
                                 len(epoch_loss), prev_loss)
-                            plotter.plot(f'pca_{beta:.2f}_{model.latent_dim}',
-                                         'Val', f'pca_{beta:.2f}_{model.latent_dim}',
-                                         len(epoch_loss), prePCA.item())
-                            plotter.plot(f'img_llh_{beta:.2f}_{model.latent_dim}',
-                                         'Val', f'img_llh_{beta:.2f}_{model.latent_dim}',
-                                         len(epoch_loss), neg_llh_img.item())
-                            plotter.plot(f'pose_llh_{beta:.2f}_{model.latent_dim}',
-                                         'Val', f'pose_llh_{beta:.2f}_{model.latent_dim}',
-                                         len(epoch_loss), neg_llh_pose.item())
-                            plotter.plot(f'kl_{beta:.2f}_{model.latent_dim}',
-                                         'Val', f'kl_{beta:.2f}_{model.latent_dim}',
+                            #
+                            # if model.pre_dim != model.input_dim:
+                            #     plotter.plot(f'pca_{beta:.2f}_{model.latent_dim}',
+                            #                  # 'Val', f'pca_{beta:.2f}_{model.latent_dim}',
+                            #                  'Val', 'pca',
+                            #                  len(epoch_loss), prePCA.item())
+                            #
+                            # plotter.plot(f'img_llh_{beta:.2f}_{model.latent_dim}',
+                            #              # 'Val', f'img_llh_{beta:.2f}_{model.latent_dim}',
+                            #              'Val', 'img_llh',
+                            #              len(epoch_loss), neg_llh_img.item())
+                            #
+                            # if model.pose_dim > 0:
+                            #     plotter.plot(f'pose_llh_{beta:.2f}_{model.latent_dim}',
+                            #                  'Val', f'pose_llh_{beta:.2f}_{model.latent_dim}',
+                            #                  len(epoch_loss), neg_llh_pose.item())
+
+                            plotter.plot('kl_{:.2f}_{}'.format(*fmt),
+                                         # 'Val', f'kl_{beta:.2f}_{model.latent_dim}',
+                                         'Val', 'kl',
                                          len(epoch_loss), kl.item())
+
+                            plotter.plot('l'.format(*fmt),
+                                         # 'Val', f'kl_{beta:.2f}_{model.latent_dim}',
+                                         'Val', 'kl',
+                                         len(epoch_loss), anneal)
+
                             if auxiliary_loss:
                                 plotter.plot('aux', 'Val', 'aux', len(epoch_loss), aux.item())
                             plotter.plot_image('reconstruction', model.pre[1](img_param['mean']))
+                            plotter.plot_image('pca', pre_param['img'])
                             plotter.plot_image('original', img)
                             e_np = np.array(epoch_loss)
                             if (len(e_np) > 2000 and

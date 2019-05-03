@@ -270,7 +270,7 @@ def pretrain(model, pre):
             param.requires_grad = not(pre)
 
 
-def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
+def fit(model, data_loader, epochs=3, verbose=True, optimizer=None,
         device='cpu', weight_fn=None, conditional=False,
         loss_func=None, plotter=None, beta=1, stop_crit=1e-4):
     """
@@ -291,7 +291,7 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
         if stop:
             break
 
-        for phase in ['pretrain', 'train', 'val']:
+        for phase in data_loader.keys():
             if phase == 'pretrain' and epoch > 0:
                 continue
             epoch_loss = []

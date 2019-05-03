@@ -333,9 +333,11 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                         # import pdb; pdb.set_trace()
                     aux = F.mse_loss(z, model.encode(x[0])[0]) if auxiliary_loss else 0
 
-                    if phase in ['train', 'val']:
+                    if phase == 'train':
                         loss = neg_llh_img + neg_llh_pose + anneal * beta * kl
                         pretrain(model, False)
+                    elif phase == 'val':
+                        loss = neg_llh_img + neg_llh_pose + anneal * kl
                     else:
                         loss = prePCA
                         pretrain(model, True)
@@ -349,7 +351,7 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
                         if plotter is not None and batch_idx % 50 == 0:
                             visdom_plot(plotter, model, beta, epoch_loss,
                                         prev_loss, phase, prePCA, neg_llh_img,
-                                        neg_llh_pose, kl, anneal, pre_param,
+                                        neg_llh_pose, kl, pre_param,
                                         img_param, img, auxiliary_loss)
 
                             e_np = np.array(epoch_loss)
@@ -377,12 +379,12 @@ def fit(model, data_loader, epochs=5, verbose=True, optimizer=None,
             if weight_fn is not None:
                 torch.save(model.state_dict(), weight_fn)
     # return all_train_loss
-    return epoch_loss  # last validation loss for gpyopt
+    return epoch_loss*M/N  # last validation loss for gpyopt
 
 
 def visdom_plot(plotter, model, beta, epoch_loss,
                 prev_loss, phase, prePCA, neg_llh_img,
-                neg_llh_pose, kl, anneal, pre_param,
+                neg_llh_pose, kl, pre_param,
                 img_param, img, auxiliary_loss):
     fmt = (beta, model.latent_dim)
     plotter.plot('Loss_{:.2f}_{}'.format(*fmt), 'Val', 'Loss',
@@ -404,11 +406,6 @@ def visdom_plot(plotter, model, beta, epoch_loss,
                  # 'Val', f'kl_{beta:.2f}_{model.latent_dim}',
                  'Val', 'kl',
                  len(epoch_loss), kl.item())
-
-    plotter.plot('l'.format(*fmt),
-                 # 'Val', f'kl_{beta:.2f}_{model.latent_dim}',
-                 'Val', 'kl',
-                 len(epoch_loss), anneal)
 
     if auxiliary_loss:
         plotter.plot('aux', 'Val', 'aux', len(epoch_loss), aux.item())

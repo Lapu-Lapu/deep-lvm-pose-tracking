@@ -283,6 +283,9 @@ def fit(model, data_loader, epochs=3, verbose=True, optimizer=None,
     if loss_func is None:
         loss_func = partial(loss_function, beta=1, likelihood=model.likelihood)
 
+    global pretrain
+    pretrain = pretrain if model.pre_dim != model.input_dim else lambda x, y: 42
+
     stop = False  # is set to True if stopping criteria is fullfilled
 
     all_train_loss = []
@@ -319,19 +322,9 @@ def fit(model, data_loader, epochs=3, verbose=True, optimizer=None,
                     img = T(img.float()).to(device)
 
                     img_param, latent_param, pose_param, pre_param = model(img, pose)
-                                                                           # anneal=anneal)
                     prePCA, neg_llh_img, neg_llh_pose, kl = joint_loss(img, pose,
                                                                        img_param, latent_param,
                                                                        pose_param, pre_param)
-
-                    auxiliary_loss = False
-                    if auxiliary_loss:
-                        # https://www.reddit.com/r/MachineLearning/comments/al0lvl/d_variational_autoencoders_are_not_autoencoders/efaf4tl?utm_source=share&utm_medium=web2x
-                        z = torch.normal(mean=torch.zeros((100, model.latent_dim)),
-                                         std=torch.ones((100, model.latent_dim))).to('cuda')
-                        x = model.decode(z)
-                        # import pdb; pdb.set_trace()
-                    aux = F.mse_loss(z, model.encode(x[0])[0]) if auxiliary_loss else 0
 
                     if phase == 'train':
                         loss = neg_llh_img + neg_llh_pose + anneal * beta * kl
@@ -352,7 +345,7 @@ def fit(model, data_loader, epochs=3, verbose=True, optimizer=None,
                             visdom_plot(plotter, model, beta, epoch_loss,
                                         prev_loss, phase, prePCA, neg_llh_img,
                                         neg_llh_pose, kl, pre_param,
-                                        img_param, img, auxiliary_loss)
+                                        img_param, img)
 
                             e_np = np.array(epoch_loss)
                             if (len(e_np) > 2000 and
@@ -385,7 +378,7 @@ def fit(model, data_loader, epochs=3, verbose=True, optimizer=None,
 def visdom_plot(plotter, model, beta, epoch_loss,
                 prev_loss, phase, prePCA, neg_llh_img,
                 neg_llh_pose, kl, pre_param,
-                img_param, img, auxiliary_loss):
+                img_param, img):
     fmt = (beta, model.latent_dim)
     plotter.plot('Loss_{:.2f}_{}'.format(*fmt), 'Val', 'Loss',
                  len(epoch_loss), prev_loss)
@@ -401,16 +394,15 @@ def visdom_plot(plotter, model, beta, epoch_loss,
             plotter.plot(f'pose_llh_{beta:.2f}_{model.latent_dim}',
                          'Val', f'pose_llh_{beta:.2f}_{model.latent_dim}',
                          len(epoch_loss), neg_llh_pose.item())
+    else:
+        plotter.plot_image('pca', pre_param['img'])
 
     plotter.plot('kl_{:.2f}_{}'.format(*fmt),
                  # 'Val', f'kl_{beta:.2f}_{model.latent_dim}',
                  'Val', 'kl',
                  len(epoch_loss), kl.item())
 
-    if auxiliary_loss:
-        plotter.plot('aux', 'Val', 'aux', len(epoch_loss), aux.item())
     plotter.plot_image('reconstruction', model.pre[1](img_param['mean']))
-    plotter.plot_image('pca', pre_param['img'])
     plotter.plot_image('original', img)
 
 if __name__ == '__main__':

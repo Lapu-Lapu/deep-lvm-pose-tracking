@@ -67,6 +67,7 @@ class cVAE(nn.Module):
         ])
 
         self.enc_activations = [
+            # TODO: check encoder output activation in other implementations
             lambda x: x
         ]
 
@@ -161,19 +162,27 @@ class VAE(cVAE):
         return mu_x, var_x, mu, logvar
 
 
-def joint_loss(img, pose, img_param, latent_param, pose_param, pre_param):
+def joint_loss(img, pose, img_param, latent_param, pose_param, pre_param,
+               likelihood='normal'):
     """
     Loss function including objective to learn PCA as preprocessing step
+    TODO: decide what to do with covariances x_param['var'].
     """
     prePCA = (torch.mean((pre_param['img']-img)**2)
               if pre_param['img'] is not None else 0)
 
-    neg_llh_img = torch.mean(
-        (img_param['mean']-pre_param['latent'])**2  #/img_param['var']
-    )
+    if likelihood == 'bernoulli':
+        neg_llh_img = F.binary_cross_entropy(img_param['mean'],
+                                             pre_param['latent'], reduction='sum')
+    elif likelihood == 'normal':
+        neg_llh_img = torch.mean(
+            (img_param['mean']-pre_param['latent'])**2  #/img_param['var']
+        )
+    else:
+        raise(f'Observation model {likelihood} is not yet implemented')
 
     neg_llh_pose = torch.mean(
-        (pose_param['mean']-pose)**2/pose_param['var']
+        (pose_param['mean']-pose)**2 #/ pose_param['var']
     ) if pose is not None else 0
 
     KLD = return_kl_term(latent_param)
@@ -288,13 +297,18 @@ def fit(model, data_loader, epochs=3, verbose=True, optimizer=None,
 
     stop = False  # is set to True if stopping criteria is fullfilled
 
+    if model.pre_dim == model.input_dim:
+        phases = ['train', 'val']
+    else:
+        phases = ['pretrain', 'train', 'val']
+
     all_train_loss = []
     anneal = 0.0001
     for epoch in range(epochs):
         if stop:
             break
 
-        for phase in data_loader.keys():
+        for phase in phases:
             if phase == 'pretrain' and epoch > 0:
                 continue
             epoch_loss = []

@@ -267,7 +267,7 @@ class convVAE(nn.Module):
     def decode(self, z):
         pass
 
-def pretrain(model, pre):
+def switch_grad_for_pretrain(model, pre):
     for layer in model.pre:
         for param in layer.parameters():
             param.requires_grad = pre
@@ -292,8 +292,10 @@ def fit(model, data_loader, epochs=3, verbose=True, optimizer=None,
     if loss_func is None:
         loss_func = partial(loss_function, beta=1, likelihood=model.likelihood)
 
-    global pretrain
-    pretrain = pretrain if model.pre_dim != model.input_dim else lambda x, y: 42
+    global switch_grad_for_pretrain
+    switch_grad_for_pretrain = (switch_grad_for_pretrain
+                                if model.pre_dim != model.input_dim
+                                else lambda x, y: 42)
 
     stop = False  # is set to True if stopping criteria is fullfilled
 
@@ -342,12 +344,12 @@ def fit(model, data_loader, epochs=3, verbose=True, optimizer=None,
 
                     if phase == 'train':
                         loss = neg_llh_img + neg_llh_pose + anneal * beta * kl
-                        pretrain(model, False)
+                        switch_grad_for_pretrain(model, False)
                     elif phase == 'val':
                         loss = neg_llh_img + neg_llh_pose + anneal * kl
                     else:
                         loss = prePCA
-                        pretrain(model, True)
+                        switch_grad_for_pretrain(model, True)
 
                     optimizer.zero_grad()
                     if phase in ['pretrain', 'train']:
@@ -375,7 +377,7 @@ def fit(model, data_loader, epochs=3, verbose=True, optimizer=None,
                         epoch_loss += [loss.item()]
                     if verbose and phase == 'train':
                         pbar.set_description(
-                            f"({phase}) Epoch {epoch}, Loss at batch {batch_idx:05d}: {loss.item()*M/N:.2E}"
+f"({phase}) Epoch {epoch}, Loss at batch {batch_idx:05d}: {loss.item()*M/N:.2E}"
                         )
             if phase == 'train':
                 all_train_loss += epoch_loss

@@ -28,8 +28,9 @@ def mean_var_activation(x):
     return F.elu(x[:, :N//2]), F.softplus(x[:, N//2:])
 
 class cVAE(nn.Module):
-    def __init__(self, input_dim, pose_dim, latent_dim=5, hidden=40,
-                 likelihood='bernoulli', pre_dim=None):
+    def __init__(self, input_dim, condition_dim, latent_dim=5, hidden=40,
+                 likelihood='bernoulli', pre_dim=None,
+                 condition_on='pose'):
         nn.Module.__init__(self)
         self.likelihood = likelihood
         if likelihood in ['normal', 'cauchy', 'laplace']:
@@ -56,10 +57,14 @@ class cVAE(nn.Module):
                 nn.Linear(pre_dim, input_dim)
             ])
 
-        # Input
-        self.inp_img = nn.Linear(pre_dim, hidden//2)
-        if pose_dim > 0:
-            self.inp_pose = nn.Linear(pose_dim, hidden//2)
+        # Input  
+        # TODO: this will cause problems if pre_dim != input_dim and
+        # conditioner is image! Refactor necessary.
+        # TODO: replace hidden//2 by fraction of pre_dim//condition_dim
+        self.input = nn.Linear(pre_dim, hidden//2)
+        if condition_dim > 0:
+            self.conditioner = nn.Linear(condition_dim, hidden//2)
+        # import pdb; pdb.set_trace()
 
         # Encoder
         self.enc = nn.ModuleList([
@@ -73,9 +78,9 @@ class cVAE(nn.Module):
 
         # Decoder
         self.dec = nn.ModuleList([
-            nn.Linear(latent_dim + pose_dim, hidden),
-            nn.Linear(hidden, dec_out_factor * (pre_dim+pose_dim))
-            # nn.Linear(latent_dim + pose_dim, dec_out_factor * input_dim)
+            nn.Linear(latent_dim + condition_dim, hidden),
+            nn.Linear(hidden, dec_out_factor * (pre_dim+condition_dim))
+            # nn.Linear(latent_dim + condition_dim, dec_out_factor * input_dim)
         ])
         self.dec_activations = [
             F.relu,
@@ -85,10 +90,14 @@ class cVAE(nn.Module):
         self.latent_dim = latent_dim
         self.input_dim = input_dim
         self.pre_dim = pre_dim
-        self.pose_dim = pose_dim
+        self.condition_dim = condition_dim
+        self.condition_on = condition_on
+        self.image_dim = (input_dim
+                          if condition_on == 'pose'
+                          else condition_dim)
 
-    def encode(self, h, p):
-        out = F.relu(torch.cat((self.inp_img(h), self.inp_pose(p)), dim=1))
+    def encode(self, x, c):
+        out = F.relu(torch.cat((self.input(x), self.conditioner(c)), dim=1))
         for layer, activation in zip(self.enc, self.enc_activations):
             out = activation(layer(out))
         return out[:, :self.latent_dim], out[:, self.latent_dim:]
@@ -101,32 +110,39 @@ class cVAE(nn.Module):
 
     def _get_pose_param(self, mu_obs, var_obs):
         pose_param = {}
-        pose_param['mean'] = mu_obs[:, self.pre_dim:]
-        pose_param['var'] = (var_obs[:, self.pre_dim:]
+        pose_param['mean'] = mu_obs[:, self.image_dim:]
+        pose_param['var'] = (var_obs[:, self.image_dim:]
                               if self.likelihood != 'bernoulli' else None)
         return pose_param
 
-    def forward(self, x, pose=None, anneal=1):
-        h, rec = self.prePCA(x)
-        mu, logvar = self.encode(h, pose)
-        z = reparameterize(mu, logvar, anneal=anneal)
-
-        # shape (:, pre_dim+pose_dim), (:, pre_dim+pose_dim)
-        mu_obs, var_obs = self.decode(z, pose)
-
+    def forward(self, img, pose=None, anneal=1):
         img_param, latent_param, pre_param = {}, {}, {}
 
-        img_param['mean'] = mu_obs[:, :self.pre_dim]
-        img_param['var'] = (var_obs[:, :self.pre_dim]
-                            if self.likelihood != 'bernoulli' else None)
-
-        pose_param = self._get_pose_param(mu_obs, var_obs)
-
+        # Use PCA weights instead of image if necessary
+        h, rec = self.prePCA(img)
+        x, c = ((h, pose)
+                if self.condition_on == 'pose'
+                else (pose, h))
         pre_param['latent'] = h
         pre_param['img'] = rec
 
+        # Encode
+        mu, logvar = self.encode(x, c)
         latent_param['mean'] = mu
         latent_param['logvar'] = logvar
+
+        # Draw a sample and reparametrize: z = mu(x) + sigma * eps
+        z = reparameterize(mu, logvar, anneal=anneal)
+
+        # Decode
+        c = pose if self.condition_on == 'pose' else h
+        # shape (:, pre_dim+condition_dim), (:, pre_dim+condition_dim)
+        mu_obs, var_obs = self.decode(z, c)
+
+        img_param['mean'] = mu_obs[:, :self.image_dim]
+        img_param['var'] = (var_obs[:, :self.image_dim]
+                            if self.likelihood != 'bernoulli' else None)
+        pose_param = self._get_pose_param(mu_obs, var_obs)
 
         return img_param, latent_param, pose_param, pre_param
 
@@ -136,12 +152,12 @@ class VAE(cVAE):
                  pre_dim=None,
                  likelihood='bernoulli'):
         cVAE.__init__(self, input_dim, latent_dim=latent_dim,
-                      hidden=hidden, pose_dim=0, pre_dim=pre_dim,
+                      hidden=hidden, condition_dim=0, pre_dim=pre_dim,
                       likelihood=likelihood)
-        self.inp_img = nn.Linear(self.pre_dim, hidden)
+        self.input = nn.Linear(self.pre_dim, hidden)
 
-    def encode(self, x, p=None):
-        out = F.relu(self.inp_img(x))
+    def encode(self, img, p=None):
+        out = F.relu(self.input(img))
         for layer, activation in zip(self.enc, self.enc_activations):
             out = activation(layer(out))
         return out[:, :self.latent_dim], out[:, self.latent_dim:]
@@ -155,8 +171,8 @@ class VAE(cVAE):
     def _get_pose_param(self, mu_obs, var_obs):
         return None
 
-    def forward_deprec(self, x, pose=None):
-        mu, logvar = self.encode(x)
+    def forward_deprec(self, img, pose=None):
+        mu, logvar = self.encode(img)
         z = reparameterize(mu, logvar)
         mu_x, var_x = self.decode(z)
         return mu_x, var_x, mu, logvar
@@ -258,8 +274,8 @@ class convVAE(nn.Module):
             nn.Sigmoid()
         ]
 
-    def encode(self, x):
-        h1 = F.relu(self.encoder[0](x))
+    def encode(self, img):
+        h1 = F.relu(self.encoder[0](img))
         h2 = self.encoder[1](h1)
         h3 = F.relu(self.encoder[2](h2))
         return self.encoder[3](h3)
@@ -406,7 +422,7 @@ def visdom_plot(plotter, model, beta, epoch_loss,
                      'Val', 'img_llh',
                      len(epoch_loss), neg_llh_img.item())
 
-        if model.pose_dim > 0:
+        if model.condition_dim > 0:
             plotter.plot(f'pose_llh_{beta:.2f}_{model.latent_dim}',
                          'Val', f'pose_llh_{beta:.2f}_{model.latent_dim}',
                          len(epoch_loss), neg_llh_pose.item())

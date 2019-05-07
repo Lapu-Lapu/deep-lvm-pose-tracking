@@ -6,9 +6,24 @@ from visdom import Visdom
 from itertools import product
 from functools import partial
 
+import sys
+sys.path.append('../code')
+import toy_data as toy
+
 # useful for plotting on a 3x3 grid:
 to_ind = np.array(list(product(range(3), range(3))))
 
+
+def pose_to_image(pose, bone_lengths, d):
+    img = toy.keypoint_to_image(
+        toy.forward(2*np.pi*(pose-0.5) , bone_lengths),
+        size=(d, d),
+        include_origin=True
+    )
+    return img
+
+def un_normalize(poses):
+    return 360*(poses-0.5)
 
 def plot_reconstruction(recon, orig):
     fig, ax = plt.subplots(ncols=2)

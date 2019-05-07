@@ -2,6 +2,9 @@
 #+latex_header: \usepackage[citestyle=authoryear-icomp,bibstyle=authoryear, hyperref=true,backref=true,maxcitenames=3,url=true,backend=biber,natbib=true] {biblatex}
 #+latex_header: \addbibresource{literature.bib}
 
+* TODO How does the one-dimensional latent space look like?
+* TODO Make package: references, notebook, code for Gunnar, Matt
+* TODO Loose constraints
 
 * Plan
 1. Generate Ground Truth with Panda3D
@@ -60,8 +63,9 @@ is recordings in laboratory environment.
   https://ai.googleblog.com/2018/03/mobile-real-time-video-segmentation.html
 - Deep learning methods work really well for key point estimation 
   from single frames. Therefore people attempt to abuse 2D annotations.
-  
 - compute optical flow to use as input [@sevilla-lara_integration_2017]
+- what is more likely: latent representation for all movement, or
+  latent representation conditioned on activity
 ** shared representation of biological movement and its perception using VAE-SMPs
 
 * Literature

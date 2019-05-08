@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 import torch
 import numpy as np
 from visdom import Visdom
@@ -6,12 +7,73 @@ from visdom import Visdom
 from itertools import product
 from functools import partial
 
-import sys
-sys.path.append('../code')
-import toy_data as toy
+from . import toy_data as toy
 
 # useful for plotting on a 3x3 grid:
 to_ind = np.array(list(product(range(3), range(3))))
+
+
+class LatentTraverser(object):
+    def __init__(self, model):
+        self.model = model
+        self.device = 'cpu'
+        self.zeros = np.zeros((1, self.model.latent_dim))
+        self.fig, self.ax = plt.subplots()
+        self.d  = int(np.sqrt(self.model.input_dim))
+        img = np.zeros((self.d, self.d))
+        img[0, 0] = 1
+        self.init_img = img
+        self.mimg = plt.imshow(img)
+        plt.close()
+
+    def _init_img(self):
+        self.mimg.set_data(self.init_img)
+        return (self.mimg,)
+
+    def _get_img(self, ind):
+        zeros = np.zeros((1, self.model.latent_dim))
+        for x in np.linspace(-4, 4):
+            zeros[:, ind] = x
+            mu_star = torch.Tensor(zeros).to(self.device)
+            gen = self.model.decode(mu_star)[0]
+            gen = gen.cpu().detach().numpy().reshape((self.d, self.d))
+            # set_trace()
+            yield (x, gen)
+
+    def animate(self, img):
+        x, img = img
+        self.ax.set_title(f'{x:.3}')
+        self.mimg.set_data(img)
+        return (self.mimg,)
+
+    def  get_anims(self, weight_dofs):
+        anims = []
+        for i in weight_dofs:
+            generator = self._get_img(i)
+            anim = FuncAnimation(self.fig, self.animate, init_func=self._init_img,
+                                           frames=generator, interval=120,
+                                           blit=True)
+            anims += [anim]
+        return anims
+
+
+def make_bonelengths_and_width(n_bones=3, img_dim_sqrt=64):
+    """
+    Returns bone lengths and keymarker width with sensible defaults.
+    """
+    eps = np.random.rand(n_bones)
+    bone_lengths = img_dim_sqrt//6 * (eps/2+1-1/n_bones)
+    key_marker_width = 1.5 * img_dim_sqrt/32
+    return bone_lengths, key_marker_width
+
+
+def make_poses(N=36000):
+    """
+    Returns poses restricted such that there is no ambiguity.
+    """
+    poses = 1/2*np.pi*(np.random.rand(N, 3)-0.5)
+    poses[:, 0] = poses[:, 0] * 4
+    return poses
 
 
 def pose_to_image(pose, bone_lengths, d):

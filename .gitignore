@@ -1,3 +1,7 @@
+*.npz
+*.png
+*.pt
+
 # Temporary and binary files
 *~
 *.py[cod]

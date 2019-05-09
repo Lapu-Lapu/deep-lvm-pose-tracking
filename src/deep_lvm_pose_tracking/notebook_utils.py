@@ -3,6 +3,10 @@ from matplotlib.animation import FuncAnimation
 import torch
 import numpy as np
 from visdom import Visdom
+import daft
+from matplotlib import rc
+rc("font", family="serif", size=12)
+rc("text", usetex=True)
 
 from itertools import product
 from functools import partial
@@ -11,6 +15,25 @@ from . import toy_data as toy
 
 # useful for plotting on a 3x3 grid:
 to_ind = np.array(list(product(range(3), range(3))))
+
+
+def plot_pgm():
+    p_color = {"ec": "#46a546"}
+    s_color = {"ec": "#f89406"}
+
+    pgm = daft.PGM([3.6, 3.5], origin=[0.7, 0])
+
+    pgm.add_node(daft.Node("network", r"$\gamma$", 1.0, 1.5))
+    pgm.add_node(daft.Node("latent", r"$z_i$", 2.25, 2))
+    pgm.add_node(daft.Node("image", r"$y_i ^j$", 2.25, 1, observed=True))
+
+    pgm.add_edge("latent", "image")
+    pgm.add_edge("network", "image")
+
+    pgm.add_plate(daft.Plate([1.5, 0.2, 1.5, 2.2], label=r"$N$",
+        shift=-0.1))
+
+    pgm.render()
 
 
 class LatentTraverser(object):

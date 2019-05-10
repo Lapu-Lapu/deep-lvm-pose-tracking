@@ -17,23 +17,25 @@ from . import toy_data as toy
 to_ind = np.array(list(product(range(3), range(3))))
 
 
-def plot_pgm():
+def plot_pgm(dpi=100):
     p_color = {"ec": "#46a546"}
     s_color = {"ec": "#f89406"}
 
-    pgm = daft.PGM([3.6, 3.5], origin=[0.7, 0])
+    # pgm = daft.PGM([3.6, 3.5], grid_unit=2)
+    pgm = daft.PGM([3.2, 2.5], grid_unit=2, dpi=dpi)
+    # pgm = daft.PGM()
 
-    pgm.add_node(daft.Node("network", r"$\gamma$", 1.0, 1.5))
+    pgm.add_node(daft.Node("network", r"$\gamma$", 1.0, 1.5, fixed=True))
     pgm.add_node(daft.Node("latent", r"$z_i$", 2.25, 2))
-    pgm.add_node(daft.Node("image", r"$y_i ^j$", 2.25, 1, observed=True))
+    pgm.add_node(daft.Node("image", r"$x_i$", 2.25, 1, observed=True))
 
     pgm.add_edge("latent", "image")
     pgm.add_edge("network", "image")
 
-    pgm.add_plate(daft.Plate([1.5, 0.2, 1.5, 2.2], label=r"$N$",
-        shift=-0.1))
+    pgm.add_plate(daft.Plate([1.6, 0.2, 1.2, 2.3], label=r"$N$"))
 
-    pgm.render()
+    # pgm.render()
+    return pgm
 
 
 class LatentTraverser(object):

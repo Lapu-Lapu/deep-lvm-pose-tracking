@@ -21,19 +21,26 @@ Please report errors immediately, so I can help and update the docs/code.
 
 `conda activate deepLVM`
 
-3. If you have a CUDA (for example version 10) available, install the gpu pytorch version:
+3. If you have a CUDA (for example version 10) available, install the gpu
+   pytorch version:
 
 `conda install pytorch torchvision cudatoolkit=10.0 -c pytorch`
 
-3. Register environments' ipykernel to your Jupyter Lab/Notebook (maybe not necessary):
+4. Register environments' ipykernel to your Jupyter Lab/Notebook (maybe not
+   necessary):
 
 `python -m ipykernel install --user --name deepLVM --display-name "deepLVM"`
 
-3. Install deep_lvm_pose_tracking package (develop sets up symbolic links to the package, modifications to the modules therefore have immediate effect).
+5. Install deep_lvm_pose_tracking package (develop sets up symbolic links to
+   the package, modifications to the modules therefore have immediate effect).
 
 `python setup.py develop`
 
-4. Run notebooks with kernel deepLVM.
+6. Pip install github dependencies:
+
+`pip install -r requirements.txt`
+
+7. Run jupyter notebooks with kernel deepLVM.
 
 
 ## Note

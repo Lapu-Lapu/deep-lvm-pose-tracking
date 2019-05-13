@@ -18,3 +18,4 @@ numpy
 matplotlib
 tqdm
 torch
+-e git+https://github.com/dfm/daft#egg=daft

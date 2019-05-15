@@ -3,6 +3,10 @@
 #+latex_header: \addbibresource{literature.bib}
 
 * TODO How does the one-dimensional latent space look like?
+* TODO What if keypoints are connected?
+* TODO Debugging: Test if encoder is too weak: produce training input by random decoder
+* TODO Pose -> image: increase fidelity by using decoder multiple times?
+* TODO Use radial basis function activation in encoder if gradients vanish
 * TODO Make package: references, notebook, code for Gunnar, Matt
 * TODO Loose constraints
 

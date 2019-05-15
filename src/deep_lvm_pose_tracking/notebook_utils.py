@@ -17,10 +17,6 @@ from . import toy_data as toy
 to_ind = np.array(list(product(range(3), range(3))))
 
 
-def plot_pgm(dpi=100):
-    pgm = make_vae_graph()
-    return pgm
-
 def make_vae_graph():
     pgm = daft.PGM([3.2, 2.5], grid_unit=2)
     pgm.add_node(daft.Node("network", r"$\theta$", 1.0, 1.5, fixed=True))
@@ -39,7 +35,7 @@ def make_cvae_graph():
     pgm.add_node(daft.Node("pose", r"$c_i$", 2.6, 1, observed=True))
     pgm.add_edge("latent", "image")
     pgm.add_edge("network", "image")
-    pgm.add_edge("latent", "pose")
+    pgm.add_edge("pose", "latent", plot_params={'linestyle':'--'})
     pgm.add_edge("pose", "image")
     pgm.add_plate(daft.Plate([1.5, 0.3, 1.5, 2.3], label=r"$N$"))
     return pgm

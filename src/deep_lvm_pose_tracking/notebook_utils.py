@@ -18,25 +18,31 @@ to_ind = np.array(list(product(range(3), range(3))))
 
 
 def plot_pgm(dpi=100):
-    p_color = {"ec": "#46a546"}
-    s_color = {"ec": "#f89406"}
-
-    # pgm = daft.PGM([3.6, 3.5], grid_unit=2)
-    pgm = daft.PGM([3.2, 2.5], grid_unit=2, dpi=dpi)
-    # pgm = daft.PGM()
-
-    pgm.add_node(daft.Node("network", r"$\gamma$", 1.0, 1.5, fixed=True))
-    pgm.add_node(daft.Node("latent", r"$z_i$", 2.25, 2))
-    pgm.add_node(daft.Node("image", r"$x_i$", 2.25, 1, observed=True))
-
-    pgm.add_edge("latent", "image")
-    pgm.add_edge("network", "image")
-
-    pgm.add_plate(daft.Plate([1.6, 0.2, 1.2, 2.3], label=r"$N$"))
-
-    # pgm.render()
+    pgm = make_vae_graph()
     return pgm
 
+def make_vae_graph():
+    pgm = daft.PGM([3.2, 2.5], grid_unit=2)
+    pgm.add_node(daft.Node("network", r"$\theta$", 1.0, 1.5, fixed=True))
+    pgm.add_node(daft.Node("latent", r"$z_i$", 2.25, 2))
+    pgm.add_node(daft.Node("image", r"$x_i$", 2.25, 1, observed=True))
+    pgm.add_edge("latent", "image")
+    pgm.add_edge("network", "image")
+    pgm.add_plate(daft.Plate([1.6, 0.2, 1.2, 2.3], label=r"$N$"))
+    return pgm
+
+def make_cvae_graph():
+    pgm = daft.PGM([3.2, 2.5], grid_unit=2)
+    pgm.add_node(daft.Node("network", r"$\theta$", 1.0, 1.5, fixed=True))
+    pgm.add_node(daft.Node("latent", r"$z_i$", 2.25, 2))
+    pgm.add_node(daft.Node("image", r"$x_i$", 1.9, 1, observed=False))
+    pgm.add_node(daft.Node("pose", r"$c_i$", 2.6, 1, observed=True))
+    pgm.add_edge("latent", "image")
+    pgm.add_edge("network", "image")
+    pgm.add_edge("latent", "pose")
+    pgm.add_edge("pose", "image")
+    pgm.add_plate(daft.Plate([1.5, 0.3, 1.5, 2.3], label=r"$N$"))
+    return pgm
 
 class LatentTraverser(object):
     def __init__(self, model):
